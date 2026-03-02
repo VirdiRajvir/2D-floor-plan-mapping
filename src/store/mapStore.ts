@@ -9,6 +9,7 @@ import {
   TransitionDataset,
   TransitionCsvFiles,
 } from '@/lib/types';
+import type { FloorPlanOutline } from '@/lib/floorplanExtractor';
 
 interface MapStore {
   // State
@@ -32,7 +33,7 @@ interface MapStore {
   setEps32Point: (id: string, point: MarkerPoint | null) => void;
   setFloorPlanDimensions: (id: string, width: number, height: number) => void;
   setFloorPlanPosition: (id: string, x: number, y: number) => void;
-  setFloorPlanOutline: (id: string, outline: string | null) => void;
+  setFloorPlanOutline: (id: string, outline: FloorPlanOutline | null) => void;
 
   // Transition actions
   addTransition: (fromRoomId: string, toRoomId: string) => string | null;

@@ -140,6 +140,12 @@ export default function Dashboard() {
 
           <div className="flex items-center gap-4 text-sm">
             <a
+              href="/navigate"
+              className="px-3 py-1.5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 rounded-lg hover:bg-emerald-600/30 transition-colors font-medium"
+            >
+              Navigate Map
+            </a>
+            <a
               href="/extract"
               className="px-3 py-1.5 bg-purple-600/20 border border-purple-500/30 text-purple-400 rounded-lg hover:bg-purple-600/30 transition-colors font-medium"
             >

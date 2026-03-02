@@ -27,8 +27,16 @@ export interface FloorPlanOutline {
   walls: WallSegment[];
   obstacles: ObstacleBlock[];
   outerBoundary: { x: number; y: number }[]; // polygon points, 0-1 normalized
+  rooms: ExtractedRoom[];
+  corridorCenterline: { x: number; y: number }[]; // ordered walkable corridor path
   width: number;   // output canvas width
   height: number;  // output canvas height
+}
+
+export interface ExtractedRoom {
+  label: string;
+  center: { x: number; y: number };       // normalized 0-1
+  doorPosition: { x: number; y: number };  // normalized 0-1
 }
 
 export interface ExtractorOptions {
@@ -56,27 +64,33 @@ const DEFAULT_OPTIONS: Omit<ExtractorOptions, 'apiKey'> = {
 function buildExtractionPrompt(pass: number, previousResult?: FloorPlanOutline): string {
   const base = `You are a precise architectural geometry extractor. Analyze this floor plan image and extract ONLY the physical structural elements as geometric primitives.
 
-TASK: Return a JSON object describing the floor plan with ONLY:
+TASK: Return a JSON object describing the floor plan with:
 1. **outerBoundary** — The outer wall perimeter as a polygon. Return an array of {x, y} points (normalized 0.0 to 1.0 relative to image dimensions) tracing the outer walls. Start from top-left and go clockwise.
 2. **walls** — Interior wall segments as line segments. Each has {x1, y1, x2, y2} normalized 0-1. Include ALL interior walls, partition walls, and structural walls visible in the image.
-3. **obstacles** — Furniture, desks, tables, equipment, and any solid objects as rectangles. Each has {x, y, width, height} normalized 0-1 where x,y is top-left corner. These should be the BLACK FILLED rectangles in the output.
+3. **obstacles** — Furniture, desks, tables, equipment, and any solid objects as rectangles. Each has {x, y, width, height} normalized 0-1 where x,y is top-left corner.
+4. **rooms** — Every labeled or identifiable room/area. Each has {label, center: {x,y}, doorPosition: {x,y}} all normalized 0-1. The label is the room name/number visible in the image (e.g. "LT 22", "Office", "Lab 3"). The center is the room's center point. The doorPosition is where the door opening connects to the corridor.
+5. **corridorCenterline** — An ordered array of {x, y} points tracing the CENTER of every walkable corridor/hallway. Start from one end and trace through all corridor segments and junctions. Include branch points where corridors meet. This should cover ALL walkable space between rooms.
 
 CRITICAL RULES:
 - ALL coordinates are normalized 0.0 to 1.0 (0,0 = top-left of image, 1,1 = bottom-right)
-- IGNORE all text, labels, annotations, arrows, measurements, and dimensions
+- IGNORE all text, labels, annotations, arrows, measurements, and dimensions in the image for walls/obstacles, but DO read labels to identify room names
 - IGNORE door swing arcs and door symbols
 - DO include door openings as gaps in walls
-- Obstacles should capture desks, tables, shelving units, large equipment — anything that would be a solid black rectangle in a simplified view
-- For rows of identical furniture (like rows of desks), represent EACH individual piece as a separate obstacle
+- Obstacles should capture desks, tables, shelving units, large equipment
+- For rows of identical furniture, represent EACH individual piece as a separate obstacle
 - Walls should be line segments, not rectangles
-- Be EXTREMELY precise with coordinates. Measure carefully against the image grid.
-- The outer boundary polygon should closely follow the actual wall outline, including any indentations or extensions
+- Be EXTREMELY precise with coordinates
+- The outer boundary polygon should closely follow the actual wall outline
+- The corridorCenterline should trace the MIDDLE of corridors, NOT along walls
+- Make sure corridorCenterline passes NEAR every room's doorPosition so those rooms are reachable
 
 Return ONLY valid JSON with this exact structure:
 {
   "outerBoundary": [{"x": 0.0, "y": 0.0}, ...],
   "walls": [{"x1": 0.1, "y1": 0.2, "x2": 0.5, "y2": 0.2}, ...],
-  "obstacles": [{"x": 0.1, "y": 0.2, "width": 0.05, "height": 0.1, "label": "desk"}, ...]
+  "obstacles": [{"x": 0.1, "y": 0.2, "width": 0.05, "height": 0.1, "label": "desk"}, ...],
+  "rooms": [{"label": "LT 22", "center": {"x": 0.5, "y": 0.1}, "doorPosition": {"x": 0.45, "y": 0.15}}, ...],
+  "corridorCenterline": [{"x": 0.1, "y": 0.5}, {"x": 0.3, "y": 0.5}, ...]
 }
 
 Do NOT include any explanation, markdown, or text outside the JSON.`;
@@ -89,6 +103,8 @@ Fix any inaccuracies. Pay special attention to:
 - Obstacles that are missing or whose positions/sizes don't match the image
 - Wall segments that don't align with visible walls
 - The outer boundary accuracy
+- Room labels and their door positions
+- corridorCenterline should trace through ALL walkable corridors
 - Make sure obstacle sizes are proportional to what's shown in the image`;
   }
 
@@ -164,10 +180,45 @@ function validateOutline(data: unknown): FloorPlanOutline | null {
     return null;
   }
 
+  // Validate rooms
+  const rooms: { label: string; center: { x: number; y: number }; doorPosition: { x: number; y: number } }[] = [];
+  if (Array.isArray(d.rooms)) {
+    for (const r of d.rooms) {
+      if (r && typeof r === 'object' && 'label' in r && 'center' in r && 'doorPosition' in r) {
+        const ro = r as Record<string, unknown>;
+        const center = ro.center as Record<string, unknown> | undefined;
+        const door = ro.doorPosition as Record<string, unknown> | undefined;
+        if (center && door && typeof center.x === 'number' && typeof center.y === 'number' && typeof door.x === 'number' && typeof door.y === 'number') {
+          rooms.push({
+            label: String(ro.label),
+            center: { x: clamp(Number(center.x), 0, 1), y: clamp(Number(center.y), 0, 1) },
+            doorPosition: { x: clamp(Number(door.x), 0, 1), y: clamp(Number(door.y), 0, 1) },
+          });
+        }
+      }
+    }
+  }
+
+  // Validate corridor centerline
+  const corridorCenterline: { x: number; y: number }[] = [];
+  if (Array.isArray(d.corridorCenterline)) {
+    for (const pt of d.corridorCenterline) {
+      if (pt && typeof pt === 'object' && 'x' in pt && 'y' in pt) {
+        const x = clamp(Number(pt.x), 0, 1);
+        const y = clamp(Number(pt.y), 0, 1);
+        if (!isNaN(x) && !isNaN(y)) {
+          corridorCenterline.push({ x, y });
+        }
+      }
+    }
+  }
+
   return {
     outerBoundary,
     walls,
     obstacles,
+    rooms,
+    corridorCenterline,
     width: 900,
     height: 750,
   };

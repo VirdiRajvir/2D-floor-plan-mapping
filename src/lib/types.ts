@@ -37,6 +37,12 @@ export interface MarkerPoint {
   y: number; // percentage 0-100 on the image
 }
 
+export interface RoomInfo {
+  label: string;
+  center: { x: number; y: number };       // normalized 0-1
+  doorPosition: { x: number; y: number };  // normalized 0-1
+}
+
 import type { FloorPlanOutline } from './floorplanExtractor';
 
 export interface FloorPlan {
