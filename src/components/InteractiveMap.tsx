@@ -804,119 +804,156 @@ export default function InteractiveMap() {
   const totalDistance = transitions.reduce((sum, t) => sum + (t.path?.totalDistance || 0), 0);
   const processedCount = transitions.filter((t) => t.processed).length;
 
+  const [fireZone, setFireZone] = useState<{ x: number; y: number; r: number } | null>(null);
+  const [fireActive, setFireActive] = useState(false);
+
+  // Fire rescue zone movement logic (bounded to walkable region)
+  useEffect(() => {
+    if (!fireActive || !fireZone) return;
+    let running = true;
+    function moveZone() {
+      if (!running) return;
+      setFireZone((prev) => {
+        if (!prev) return null;
+        // Much smaller random walk step
+        let angle = Math.random() * 2 * Math.PI;
+        let dist = 4 + Math.random() * 3; // very little movement
+        let nx = prev.x + Math.cos(angle) * dist;
+        let ny = prev.y + Math.sin(angle) * dist;
+        // Clamp to walkable region
+        const clamped = closestWalkablePoint(nx, ny, walkableRegion);
+        return { ...prev, x: clamped.x, y: clamped.y };
+      });
+      setTimeout(moveZone, 400 + Math.random() * 200);
+    }
+    moveZone();
+    return () => { running = false; };
+  }, [fireActive, fireZone, walkableRegion]);
+
+  // Trigger fire event (start in a random walkable region)
+  const triggerFireRescue = () => {
+    // Pick a random room or path segment
+    let x = 0, y = 0;
+    if (walkableRegion.rects.length > 0) {
+      const r = walkableRegion.rects[Math.floor(Math.random() * walkableRegion.rects.length)];
+      x = r.x + r.w * Math.random();
+      y = r.y + r.h * Math.random();
+    } else if (walkableRegion.pathSegments.length > 0) {
+      const seg = walkableRegion.pathSegments[Math.floor(Math.random() * walkableRegion.pathSegments.length)];
+      const t = Math.random();
+      x = seg.x1 + (seg.x2 - seg.x1) * t;
+      y = seg.y1 + (seg.y2 - seg.y1) * t;
+    }
+    const r = (60 + Math.random() * 40) / 125; // 1/5 of previous (now 1/125 original)
+    setFireZone({ x, y, r });
+    setFireActive(true);
+  };
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-white">Safety Monitoring Map</h2>
-          <p className="text-gray-400 text-sm">Interactive facility overview with evacuation paths</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={resetView}
-            className="px-3 py-1.5 bg-gray-800 text-gray-300 rounded-lg text-sm hover:bg-gray-700 transition-colors"
-          >
-            Reset View
-          </button>
-          <div className="text-sm text-gray-400">
-            Zoom: {Math.round(zoom * 100)}%
-          </div>
-        </div>
-      </div>
-
-      {/* Stats bar */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-gray-800 rounded-xl p-4 text-center">
-          <p className="text-3xl font-bold text-blue-400">{ordered.length}</p>
-          <p className="text-xs text-gray-500 mt-1">Rooms</p>
-        </div>
-        <div className="bg-gray-800 rounded-xl p-4 text-center">
-          <p className="text-3xl font-bold text-green-400">{processedCount}/{transitions.length}</p>
-          <p className="text-xs text-gray-500 mt-1">Paths Mapped</p>
-        </div>
-        <div className="bg-gray-800 rounded-xl p-4 text-center">
-          <p className="text-3xl font-bold text-yellow-400">{totalDistance.toFixed(1)}m</p>
-          <p className="text-xs text-gray-500 mt-1">Total Path Length</p>
-        </div>
-        <div className="bg-gray-800 rounded-xl p-4 text-center">
-          <p className={`text-3xl font-bold ${processedCount === transitions.length && transitions.length > 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {processedCount === transitions.length && transitions.length > 0 ? 'MAPPED' : 'PARTIAL'}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">Coverage Status</p>
-        </div>
-      </div>
-
-      {/* Map canvas */}
-      <div
-        ref={containerRef}
-        className="bg-[#0d1117] rounded-xl border border-gray-800/40 overflow-hidden"
-        style={{ height: '500px' }}
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <button
+        style={{
+          position: 'absolute',
+          top: 18,
+          right: 24,
+          zIndex: 10,
+          padding: '12px 24px',
+          fontSize: 18,
+          background: '#dc2626',
+          color: '#fff',
+          borderRadius: 8,
+          border: 'none',
+          boxShadow: '0 2px 8px #0002',
+          cursor: 'pointer',
+        }}
+        onClick={triggerFireRescue}
       >
-        <svg
-          ref={svgRef}
-          width="100%"
-          height="100%"
-          viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
-          onWheel={handleWheel}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-          className={isPanning ? 'cursor-grabbing' : 'cursor-grab'}
-        >
-          {/* Subtle dot grid background */}
-          <defs>
-            <pattern id="dotgrid" width="20" height="20" patternUnits="userSpaceOnUse">
-              <circle cx="10" cy="10" r="0.5" fill="#333" />
-            </pattern>
-            <style>{`
-              @keyframes drawPath {
-                from { stroke-dashoffset: 1000; }
-                to { stroke-dashoffset: 0; }
-              }
-              .animate-draw-path {
-                stroke-dasharray: 1000;
-                animation: drawPath 2s ease-out forwards;
-              }
-            `}</style>
-          </defs>
-          <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="#0d1117" />
-          <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="url(#dotgrid)" />
+        Trigger Fire Rescue Event
+      </button>
+      <svg
+        ref={svgRef}
+        width={viewBox.w}
+        height={viewBox.h}
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
+        style={{ width: '100%', height: 500, background: '#0d1117' }}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        tabIndex={0}
+      >
+        {/* Subtle dot grid background */}
+        <defs>
+          <pattern id="dotgrid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <circle cx="10" cy="10" r="0.5" fill="#333" />
+          </pattern>
+          <style>{`
+            @keyframes drawPath {
+              from { stroke-dashoffset: 1000; }
+              to { stroke-dashoffset: 0; }
+            }
+            .animate-draw-path {
+              stroke-dasharray: 1000;
+              animation: drawPath 2s ease-out forwards;
+            }
+          `}</style>
+        </defs>
+        <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="#0d1117" />
+        <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="url(#dotgrid)" />
 
-          {/* Gap backgrounds (behind rooms) */}
-          {gaps.map((gap, i) => (
-            <GapBackground key={`bg-${i}`} gap={gap} />
-          ))}
+        {/* Gap backgrounds (behind rooms) */}
+        {gaps.map((gap, i) => (
+          <GapBackground key={`bg-${i}`} gap={gap} />
+        ))}
 
-          {/* Rooms */}
-          {rooms.map((room) => (
-            <RoomCard
-              key={room.plan.id}
-              room={room}
-              isSelected={selectedFloorPlanId === room.plan.id}
-              onClick={() => selectFloorPlan(room.plan.id)}
-              onDragStart={(clientX, clientY) => handleRoomDragStart(room.plan.id, room.x, room.y, clientX, clientY)}
+        {/* Rooms */}
+        {rooms.map((room) => (
+          <RoomCard
+            key={room.plan.id}
+            room={room}
+            isSelected={selectedFloorPlanId === room.plan.id}
+            onClick={() => selectFloorPlan(room.plan.id)}
+            onDragStart={(clientX, clientY) => handleRoomDragStart(room.plan.id, room.x, room.y, clientX, clientY)}
+          />
+        ))}
+
+        {/* Connector paths for all graph connections */}
+        {connections.map((connection, i) => (
+          <ConnectorPath key={`path-${connection.transition.id}-${i}`} connection={connection} />
+        ))}
+
+        {/* Player dot */}
+        {playerPos && (
+          <g>
+            {/* Outer glow */}
+            <circle cx={playerPos.x} cy={playerPos.y} r={10} fill="#facc15" opacity={0.2} />
+            {/* Dot */}
+            <circle cx={playerPos.x} cy={playerPos.y} r={6} fill="#facc15" stroke="#1a1a1a" strokeWidth={2} />
+          </g>
+        )}
+        {/* Fire rescue zone (small dot, walkable only) */}
+        {fireZone && (
+          <g>
+            <circle
+              cx={fireZone.x}
+              cy={fireZone.y}
+              r={fireZone.r}
+              fill="#dc2626"
+              opacity={0.18}
+              stroke="#dc2626"
+              strokeWidth={2}
             />
-          ))}
-
-          {/* Connector paths for all graph connections */}
-          {connections.map((connection, i) => (
-            <ConnectorPath key={`path-${connection.transition.id}-${i}`} connection={connection} />
-          ))}
-
-          {/* Player dot */}
-          {playerPos && (
-            <g>
-              {/* Outer glow */}
-              <circle cx={playerPos.x} cy={playerPos.y} r={10} fill="#facc15" opacity={0.2} />
-              {/* Dot */}
-              <circle cx={playerPos.x} cy={playerPos.y} r={6} fill="#facc15" stroke="#1a1a1a" strokeWidth={2} />
-            </g>
-          )}
-        </svg>
-      </div>
-
+            <circle
+              cx={fireZone.x}
+              cy={fireZone.y}
+              r={fireZone.r * 0.5}
+              fill="#dc2626"
+              opacity={0.22}
+            />
+          </g>
+        )}
+      </svg>
       {/* Legend */}
       <div className="flex items-center gap-6 justify-center text-xs text-gray-500">
         <div className="flex items-center gap-1.5">
