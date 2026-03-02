@@ -313,14 +313,27 @@ function closestWalkablePoint(
 
 const IMG_PAD = 2;
 
-function RoomCard({ room, isSelected, onClick }: { room: RoomPosition; isSelected: boolean; onClick: () => void }) {
+function RoomCard({ room, isSelected, onClick, onDragStart }: { room: RoomPosition; isSelected: boolean; onClick: () => void; onDragStart: (clientX: number, clientY: number) => void }) {
   const imgX = room.x + IMG_PAD;
   const imgY = room.y + IMG_PAD;
   const imgW = room.width - IMG_PAD * 2;
   const imgH = room.height - IMG_PAD * 2;
 
+  // Mouse down handler for drag
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0) {
+      e.stopPropagation();
+      onDragStart(e.clientX, e.clientY);
+    }
+  };
+
   return (
-    <g onClick={onClick} className="cursor-pointer">
+    <g
+      onClick={onClick}
+      className="cursor-pointer"
+      onMouseDown={handleMouseDown}
+      style={{ cursor: 'grab' }}
+    >
       {/* Subtle outer glow when selected */}
       {isSelected && (
         <rect
@@ -883,6 +896,7 @@ export default function InteractiveMap() {
               room={room}
               isSelected={selectedFloorPlanId === room.plan.id}
               onClick={() => selectFloorPlan(room.plan.id)}
+              onDragStart={(clientX, clientY) => handleRoomDragStart(room.plan.id, room.x, room.y, clientX, clientY)}
             />
           ))}
 
