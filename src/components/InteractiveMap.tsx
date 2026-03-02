@@ -104,45 +104,84 @@ function getMarkerSVGPosition(
   };
 }
 
-function remapPathBetweenPoints(
+function rigidTransform(
   pathPoints: PathPoint[],
   start: { x: number; y: number },
   end: { x: number; y: number }
 ): { x: number; y: number }[] {
   if (pathPoints.length < 2) return [start, end];
 
-  // Use first and last raw points as the original endpoints
   const first = pathPoints[0];
   const last = pathPoints[pathPoints.length - 1];
 
-  // Original vector (first → last)
   const origDx = last.x - first.x;
   const origDy = last.y - first.y;
   const origLen = Math.sqrt(origDx * origDx + origDy * origDy) || 1;
   const origAngle = Math.atan2(origDy, origDx);
 
-  // Target vector (start → end)
   const targetDx = end.x - start.x;
   const targetDy = end.y - start.y;
   const targetLen = Math.sqrt(targetDx * targetDx + targetDy * targetDy) || 1;
   const targetAngle = Math.atan2(targetDy, targetDx);
 
-  // Uniform scale + rotation to map original shape onto target endpoints
   const scale = targetLen / origLen;
   const rotation = targetAngle - origAngle;
   const cosR = Math.cos(rotation);
   const sinR = Math.sin(rotation);
 
   return pathPoints.map((p) => {
-    // Translate so first point is at origin
     const dx = p.x - first.x;
     const dy = p.y - first.y;
-    // Scale then rotate
     const rx = (dx * cosR - dy * sinR) * scale;
     const ry = (dx * sinR + dy * cosR) * scale;
-    // Translate to start position
     return { x: start.x + rx, y: start.y + ry };
   });
+}
+
+function pointInRect(
+  p: { x: number; y: number },
+  rect: { x: number; y: number; width: number; height: number }
+): boolean {
+  return p.x > rect.x && p.x < rect.x + rect.width && p.y > rect.y && p.y < rect.y + rect.height;
+}
+
+function mirrorAcrossLine(
+  points: { x: number; y: number }[],
+  a: { x: number; y: number },
+  b: { x: number; y: number }
+): { x: number; y: number }[] {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy || 1;
+  return points.map((p) => {
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+    const projX = a.x + t * dx;
+    const projY = a.y + t * dy;
+    return { x: 2 * projX - p.x, y: 2 * projY - p.y };
+  });
+}
+
+function remapPathBetweenPoints(
+  pathPoints: PathPoint[],
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  fromRect: RoomPosition,
+  toRect: RoomPosition
+): { x: number; y: number }[] {
+  const mapped = rigidTransform(pathPoints, start, end);
+
+  // Count how many interior points (skip first/last which are on the markers) overlap rooms
+  const interior = mapped.slice(1, -1);
+  const overlapCount = interior.filter(
+    (p) => pointInRect(p, fromRect) || pointInRect(p, toRect)
+  ).length;
+
+  if (overlapCount > interior.length * 0.2) {
+    // Mirror the path across the start→end line so it arcs the other way
+    return mirrorAcrossLine(mapped, start, end);
+  }
+
+  return mapped;
 }
 
 const IMG_PAD = 2;
@@ -267,11 +306,18 @@ function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
   const transition = corridor.transition;
   const hasPath = transition?.path && transition.path.points.length > 1;
 
-  const exitPos = getMarkerSVGPosition(corridor.fromRoomPos, corridor.fromRoom.exitPoint ?? undefined, 'right');
-  const entryPos = getMarkerSVGPosition(corridor.toRoomPos, corridor.toRoom.entryPoint ?? undefined, 'left');
+  // Marker positions (anchored on the actual exit/entry points)
+  const exitMarker = getMarkerSVGPosition(corridor.fromRoomPos, corridor.fromRoom.exitPoint ?? undefined, 'right');
+  const entryMarker = getMarkerSVGPosition(corridor.toRoomPos, corridor.toRoom.entryPoint ?? undefined, 'left');
 
   if (hasPath && transition?.path) {
-    const mapped = remapPathBetweenPoints(transition.path.points, exitPos, entryPos);
+    const mapped = remapPathBetweenPoints(
+      transition.path.points,
+      exitMarker,
+      entryMarker,
+      corridor.fromRoomPos,
+      corridor.toRoomPos
+    );
 
     const pathData = mapped
       .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
@@ -348,21 +394,21 @@ function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
   return (
     <g>
       <line
-        x1={exitPos.x}
-        y1={exitPos.y}
-        x2={entryPos.x}
-        y2={entryPos.y}
+        x1={exitMarker.x}
+        y1={exitMarker.y}
+        x2={entryMarker.x}
+        y2={entryMarker.y}
         stroke="#555"
         strokeWidth={1.2}
         strokeDasharray="6 4"
       />
       <polygon
-        points={`${entryPos.x - 7},${entryPos.y - 3} ${entryPos.x},${entryPos.y} ${entryPos.x - 7},${entryPos.y + 3}`}
+        points={`${entryMarker.x - 7},${entryMarker.y - 3} ${entryMarker.x},${entryMarker.y} ${entryMarker.x - 7},${entryMarker.y + 3}`}
         fill="#555"
       />
       <text
-        x={(exitPos.x + entryPos.x) / 2}
-        y={Math.min(exitPos.y, entryPos.y) - 8}
+        x={(exitMarker.x + entryMarker.x) / 2}
+        y={Math.min(exitMarker.y, entryMarker.y) - 8}
         textAnchor="middle"
         fill="#888"
         fontSize={9}
