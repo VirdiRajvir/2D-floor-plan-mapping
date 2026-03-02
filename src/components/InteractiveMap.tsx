@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { useMapStore } from '@/store/mapStore';
 import { FloorPlan, Transition, PathPoint } from '@/lib/types';
 
@@ -20,66 +20,107 @@ interface RoomPosition {
 function calculateLayout(
   orderedPlans: FloorPlan[],
   transitions: Transition[]
-): { rooms: RoomPosition[]; corridors: CorridorPosition[] } {
+): { rooms: RoomPosition[]; gaps: GapPosition[]; connections: ConnectionPosition[] } {
   const rooms: RoomPosition[] = [];
-  const corridors: CorridorPosition[] = [];
+  const gaps: GapPosition[] = [];
 
   let currentX = PADDING;
   const centerY = 300;
 
+  // First pass: position rooms using manual positions or auto-layout
   for (let i = 0; i < orderedPlans.length; i++) {
     const plan = orderedPlans[i];
-    rooms.push({
-      x: currentX,
-      y: centerY - ROOM_HEIGHT / 2,
+    
+    let roomX: number;
+    let roomY: number;
+    
+    if (plan.position) {
+      // Use manual position if set
+      roomX = plan.position.x;
+      roomY = plan.position.y;
+    } else {
+      // Auto-layout for rooms without manual position
+      roomX = currentX;
+      roomY = centerY - ROOM_HEIGHT / 2;
+    }
+    
+    const roomPos: RoomPosition = {
+      x: roomX,
+      y: roomY,
       width: ROOM_WIDTH,
       height: ROOM_HEIGHT,
       plan,
-    });
+    };
+    rooms.push(roomPos);
 
-    if (i < orderedPlans.length - 1) {
-      const transition = transitions.find(
-        (t) => t.fromRoomId === plan.id && t.toRoomId === orderedPlans[i + 1].id
-      );
-
-      const corridorX = currentX + ROOM_WIDTH;
-      const fromRoomPos = rooms[i];
-      const toRoomPos: RoomPosition = {
-        x: currentX + ROOM_WIDTH + CORRIDOR_WIDTH,
+    // Only add gaps and advance position for auto-layout rooms
+    if (!plan.position && i < orderedPlans.length - 1) {
+      gaps.push({
+        x: currentX + ROOM_WIDTH,
         y: centerY - ROOM_HEIGHT / 2,
-        width: ROOM_WIDTH,
-        height: ROOM_HEIGHT,
-        plan: orderedPlans[i + 1],
-      };
-      corridors.push({
-        x: corridorX,
-        y: centerY - 40,
         width: CORRIDOR_WIDTH,
-        height: 80,
-        transition: transition || null,
-        fromRoom: plan,
-        toRoom: orderedPlans[i + 1],
-        fromRoomPos,
-        toRoomPos,
+        height: ROOM_HEIGHT,
       });
-
       currentX += ROOM_WIDTH + CORRIDOR_WIDTH;
+    } else if (!plan.position) {
+      // This is the last room in auto-layout
+    } else {
+      // Manual position: still advance for next auto-layout room
+      if (i < orderedPlans.length - 1 && !orderedPlans[i + 1].position) {
+        currentX += ROOM_WIDTH + CORRIDOR_WIDTH;
+      }
     }
   }
 
-  return { rooms, corridors };
+  const roomById = new Map(rooms.map((r) => [r.plan.id, r]));
+  const pairCounts = new Map<string, number>();
+
+  transitions.forEach((t) => {
+    const key = `${t.fromRoomId}->${t.toRoomId}`;
+    pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+  });
+
+  const pairSeen = new Map<string, number>();
+  const connections: ConnectionPosition[] = transitions
+    .map((t) => {
+      const fromRoomPos = roomById.get(t.fromRoomId);
+      const toRoomPos = roomById.get(t.toRoomId);
+      if (!fromRoomPos || !toRoomPos) return null;
+
+      const key = `${t.fromRoomId}->${t.toRoomId}`;
+      const seen = pairSeen.get(key) ?? 0;
+      pairSeen.set(key, seen + 1);
+
+      return {
+        transition: t,
+        fromRoom: fromRoomPos.plan,
+        toRoom: toRoomPos.plan,
+        fromRoomPos,
+        toRoomPos,
+        pairIndex: seen,
+        pairCount: pairCounts.get(key) ?? 1,
+      };
+    })
+    .filter((c): c is ConnectionPosition => c !== null);
+
+  return { rooms, gaps, connections };
 }
 
-interface CorridorPosition {
+interface GapPosition {
   x: number;
   y: number;
   width: number;
   height: number;
-  transition: Transition | null;
+}
+
+interface ConnectionPosition {
+  transition: Transition;
   fromRoom: FloorPlan;
   toRoom: FloorPlan;
   fromRoomPos: RoomPosition;
   toRoomPos: RoomPosition;
+  pairIndex: number;
+  pairCount: number;
 }
 
 function getMarkerSVGPosition(
@@ -182,6 +223,92 @@ function remapPathBetweenPoints(
   }
 
   return mapped;
+}
+
+// --- Walkable region helpers ---
+
+interface WalkableRegion {
+  rects: { x: number; y: number; w: number; h: number }[];
+  pathSegments: { x1: number; y1: number; x2: number; y2: number }[];
+}
+
+const PATH_CORRIDOR_HALF_WIDTH = 8; // how thick the walkable corridor around path lines is
+
+function distToSegment(
+  px: number,
+  py: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number
+): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+  let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const projX = x1 + t * dx;
+  const projY = y1 + t * dy;
+  return Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+}
+
+function isInsideWalkable(x: number, y: number, region: WalkableRegion): boolean {
+  // Check rects
+  for (const r of region.rects) {
+    if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return true;
+  }
+  // Check path segments (within corridor width)
+  for (const seg of region.pathSegments) {
+    if (distToSegment(x, y, seg.x1, seg.y1, seg.x2, seg.y2) <= PATH_CORRIDOR_HALF_WIDTH) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function closestWalkablePoint(
+  x: number,
+  y: number,
+  region: WalkableRegion
+): { x: number; y: number } {
+  // Already inside
+  if (isInsideWalkable(x, y, region)) return { x, y };
+
+  let bestX = x;
+  let bestY = y;
+  let bestDist = Infinity;
+
+  // Clamp to closest rect edge
+  for (const r of region.rects) {
+    const cx = Math.max(r.x, Math.min(r.x + r.w, x));
+    const cy = Math.max(r.y, Math.min(r.y + r.h, y));
+    const d = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+    if (d < bestDist) {
+      bestDist = d;
+      bestX = cx;
+      bestY = cy;
+    }
+  }
+
+  // Clamp to closest point on path segments
+  for (const seg of region.pathSegments) {
+    const dx = seg.x2 - seg.x1;
+    const dy = seg.y2 - seg.y1;
+    const lenSq = dx * dx + dy * dy;
+    let t = lenSq === 0 ? 0 : ((x - seg.x1) * dx + (y - seg.y1) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    const projX = seg.x1 + t * dx;
+    const projY = seg.y1 + t * dy;
+    const d = Math.sqrt((x - projX) ** 2 + (y - projY) ** 2);
+    if (d < bestDist) {
+      bestDist = d;
+      bestX = projX;
+      bestY = projY;
+    }
+  }
+
+  return { x: bestX, y: bestY };
 }
 
 const IMG_PAD = 2;
@@ -288,35 +415,55 @@ function RoomCard({ room, isSelected, onClick }: { room: RoomPosition; isSelecte
   );
 }
 
-function CorridorBackground({ corridor }: { corridor: CorridorPosition }) {
-  // Seamless gap filler — light background matching the floor plan paper tone
+function GapBackground({ gap }: { gap: GapPosition }) {
   return (
     <rect
-      x={corridor.x}
-      y={corridor.fromRoomPos.y}
-      width={corridor.width}
-      height={corridor.fromRoomPos.height}
+      x={gap.x}
+      y={gap.y}
+      width={gap.width}
+      height={gap.height}
       fill="#0d1117"
       opacity={0.6}
     />
   );
 }
 
-function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
-  const transition = corridor.transition;
-  const hasPath = transition?.path && transition.path.points.length > 1;
+function applyConnectionOffset(
+  points: { x: number; y: number }[],
+  pairIndex: number,
+  pairCount: number
+): { x: number; y: number }[] {
+  if (pairCount <= 1) return points;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const dx = last.x - first.x;
+  const dy = last.y - first.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const center = (pairCount - 1) / 2;
+  const amount = (pairIndex - center) * 14;
+  return points.map((p) => ({ x: p.x + nx * amount, y: p.y + ny * amount }));
+}
 
-  // Marker positions (anchored on the actual exit/entry points)
-  const exitMarker = getMarkerSVGPosition(corridor.fromRoomPos, corridor.fromRoom.exitPoint ?? undefined, 'right');
-  const entryMarker = getMarkerSVGPosition(corridor.toRoomPos, corridor.toRoom.entryPoint ?? undefined, 'left');
+function ConnectorPath({ connection }: { connection: ConnectionPosition }) {
+  const transition = connection.transition;
+  const hasPath = transition.path && transition.path.points.length > 1;
 
-  if (hasPath && transition?.path) {
-    const mapped = remapPathBetweenPoints(
-      transition.path.points,
-      exitMarker,
-      entryMarker,
-      corridor.fromRoomPos,
-      corridor.toRoomPos
+  const exitMarker = getMarkerSVGPosition(connection.fromRoomPos, connection.fromRoom.exitPoint ?? undefined, 'right');
+  const entryMarker = getMarkerSVGPosition(connection.toRoomPos, connection.toRoom.entryPoint ?? undefined, 'left');
+
+  if (hasPath && transition.path) {
+    const mapped = applyConnectionOffset(
+      remapPathBetweenPoints(
+        transition.path.points,
+        exitMarker,
+        entryMarker,
+        connection.fromRoomPos,
+        connection.toRoomPos
+      ),
+      connection.pairIndex,
+      connection.pairCount
     );
 
     const pathData = mapped
@@ -367,8 +514,8 @@ function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
 
         {/* Distance label — subtle inline tag */}
         <rect
-          x={corridor.x + corridor.width / 2 - 28}
-          y={corridor.fromRoomPos.y + corridor.fromRoomPos.height + 6}
+          x={(exitMarker.x + entryMarker.x) / 2 - 28}
+          y={Math.max(exitMarker.y, entryMarker.y) + 8}
           width={56}
           height={18}
           rx={3}
@@ -376,8 +523,8 @@ function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
           opacity={0.85}
         />
         <text
-          x={corridor.x + corridor.width / 2}
-          y={corridor.fromRoomPos.y + corridor.fromRoomPos.height + 18}
+          x={(exitMarker.x + entryMarker.x) / 2}
+          y={Math.max(exitMarker.y, entryMarker.y) + 20}
           textAnchor="middle"
           fill="#e5e5e5"
           fontSize={10}
@@ -421,7 +568,7 @@ function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
 }
 
 export default function InteractiveMap() {
-  const { floorPlans, transitions, getOrderedFloorPlans, selectedFloorPlanId, selectFloorPlan } = useMapStore();
+  const { floorPlans, transitions, getOrderedFloorPlans, selectedFloorPlanId, selectFloorPlan, setFloorPlanPosition } = useMapStore();
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewBox, setViewBox] = useState({ x: 0, y: 0, w: 1200, h: 600 });
@@ -429,8 +576,126 @@ export default function InteractiveMap() {
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
 
+  // --- Room dragging state ---
+  const [draggedRoomId, setDraggedRoomId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
   const ordered = getOrderedFloorPlans();
-  const { rooms, corridors } = calculateLayout(ordered, transitions);
+  const { rooms, gaps, connections } = calculateLayout(ordered, transitions);
+
+  // --- Player dot state ---
+  const [playerPos, setPlayerPos] = useState<{ x: number; y: number } | null>(null);
+  const keysDown = useRef<Set<string>>(new Set());
+  const PLAYER_SPEED = 3;
+
+  // Build walkable region from rooms + connection paths
+  const walkableRegion = useMemo<WalkableRegion>(() => {
+    const rects = rooms.map((r) => ({ x: r.x, y: r.y, w: r.width, h: r.height }));
+    const pathSegments: WalkableRegion['pathSegments'] = [];
+
+    for (const connection of connections) {
+      const t = connection.transition;
+      const exitMarker = getMarkerSVGPosition(
+        connection.fromRoomPos,
+        connection.fromRoom.exitPoint ?? undefined,
+        'right'
+      );
+      const entryMarker = getMarkerSVGPosition(
+        connection.toRoomPos,
+        connection.toRoom.entryPoint ?? undefined,
+        'left'
+      );
+
+      if (t.path && t.path.points.length > 1) {
+        const mapped = applyConnectionOffset(
+          remapPathBetweenPoints(
+            t.path.points,
+            exitMarker,
+            entryMarker,
+            connection.fromRoomPos,
+            connection.toRoomPos
+          ),
+          connection.pairIndex,
+          connection.pairCount
+        );
+
+        for (let i = 0; i < mapped.length - 1; i++) {
+          pathSegments.push({
+            x1: mapped[i].x,
+            y1: mapped[i].y,
+            x2: mapped[i + 1].x,
+            y2: mapped[i + 1].y,
+          });
+        }
+      } else {
+        pathSegments.push({
+          x1: exitMarker.x,
+          y1: exitMarker.y,
+          x2: entryMarker.x,
+          y2: entryMarker.y,
+        });
+      }
+    }
+
+    return { rects, pathSegments };
+  }, [rooms, connections]);
+
+  // Initialize player position to center of first room
+  useEffect(() => {
+    if (rooms.length > 0 && playerPos === null) {
+      setPlayerPos({
+        x: rooms[0].x + rooms[0].width / 2,
+        y: rooms[0].y + rooms[0].height / 2,
+      });
+    }
+  }, [rooms, playerPos]);
+
+  // WASD key handling
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (['w', 'a', 's', 'd'].includes(k)) {
+        e.preventDefault();
+        keysDown.current.add(k);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      keysDown.current.delete(e.key.toLowerCase());
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  // Movement loop
+  useEffect(() => {
+    let rafId: number;
+    const tick = () => {
+      const keys = keysDown.current;
+      if (keys.size > 0 && playerPos) {
+        let dx = 0;
+        let dy = 0;
+        if (keys.has('w')) dy -= 1;
+        if (keys.has('s')) dy += 1;
+        if (keys.has('a')) dx -= 1;
+        if (keys.has('d')) dx += 1;
+        if (dx !== 0 || dy !== 0) {
+          const len = Math.sqrt(dx * dx + dy * dy);
+          dx = (dx / len) * PLAYER_SPEED;
+          dy = (dy / len) * PLAYER_SPEED;
+          const desired = { x: playerPos.x + dx, y: playerPos.y + dy };
+          const clamped = closestWalkablePoint(desired.x, desired.y, walkableRegion);
+          setPlayerPos(clamped);
+        }
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [playerPos, walkableRegion]);
 
   // Calculate total map width
   const totalWidth = rooms.length > 0
@@ -457,13 +722,30 @@ export default function InteractiveMap() {
   );
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 0) {
+    if (e.button === 0 && !draggedRoomId) {
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY });
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (draggedRoomId) {
+      // Handle room dragging
+      const svg = svgRef.current;
+      if (!svg) return;
+      
+      const pt = svg.createSVGPoint();
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      const svgP = pt.matrixTransform(svg.getScreenCTM()?.inverse());
+      
+      const newX = svgP.x - dragOffset.x;
+      const newY = svgP.y - dragOffset.y;
+      
+      setFloorPlanPosition(draggedRoomId, newX, newY);
+      return;
+    }
+    
     if (!isPanning) return;
     const dx = (e.clientX - panStart.x) / zoom;
     const dy = (e.clientY - panStart.y) / zoom;
@@ -473,7 +755,24 @@ export default function InteractiveMap() {
 
   const handleMouseUp = () => {
     setIsPanning(false);
+    setDraggedRoomId(null);
   };
+
+  const handleRoomDragStart = useCallback((roomId: string, roomX: number, roomY: number, clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const svgP = pt.matrixTransform(svg.getScreenCTM()?.inverse());
+    
+    setDraggedRoomId(roomId);
+    setDragOffset({
+      x: svgP.x - roomX,
+      y: svgP.y - roomY,
+    });
+  }, []);
 
   const resetView = () => {
     setZoom(1);
@@ -572,9 +871,9 @@ export default function InteractiveMap() {
           <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="#0d1117" />
           <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="url(#dotgrid)" />
 
-          {/* Corridor backgrounds (behind rooms) */}
-          {corridors.map((corridor, i) => (
-            <CorridorBackground key={`bg-${i}`} corridor={corridor} />
+          {/* Gap backgrounds (behind rooms) */}
+          {gaps.map((gap, i) => (
+            <GapBackground key={`bg-${i}`} gap={gap} />
           ))}
 
           {/* Rooms */}
@@ -587,10 +886,20 @@ export default function InteractiveMap() {
             />
           ))}
 
-          {/* Connector paths (on top of rooms, anchored to exit/entry markers) */}
-          {corridors.map((corridor, i) => (
-            <ConnectorPath key={`path-${i}`} corridor={corridor} />
+          {/* Connector paths for all graph connections */}
+          {connections.map((connection, i) => (
+            <ConnectorPath key={`path-${connection.transition.id}-${i}`} connection={connection} />
           ))}
+
+          {/* Player dot */}
+          {playerPos && (
+            <g>
+              {/* Outer glow */}
+              <circle cx={playerPos.x} cy={playerPos.y} r={10} fill="#facc15" opacity={0.2} />
+              {/* Dot */}
+              <circle cx={playerPos.x} cy={playerPos.y} r={6} fill="#facc15" stroke="#1a1a1a" strokeWidth={2} />
+            </g>
+          )}
         </svg>
       </div>
 
@@ -611,6 +920,14 @@ export default function InteractiveMap() {
         <div className="flex items-center gap-1.5">
           <div className="w-5 h-0.5 border-t border-dashed border-gray-500" />
           <span>Unmapped</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
+          <span>Player</span>
+        </div>
+        <div className="flex items-center gap-1.5 ml-2 text-gray-600">
+          <kbd className="px-1 py-0.5 bg-gray-800 rounded text-[10px] font-mono">WASD</kbd>
+          <span>to move</span>
         </div>
       </div>
     </div>

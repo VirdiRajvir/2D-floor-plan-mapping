@@ -17,6 +17,21 @@ export interface TransitionPath {
   duration: number;
 }
 
+export interface TransitionCsvFiles {
+  linearAccelerometer?: File;
+  gyroscope?: File;
+  accelerometer?: File;
+  gravity?: File;
+}
+
+export interface TransitionDataset {
+  id: string;
+  name: string;
+  csvFiles: TransitionCsvFiles;
+  path: TransitionPath | null;
+  processed: boolean;
+}
+
 export interface MarkerPoint {
   x: number; // percentage 0-100 on the image
   y: number; // percentage 0-100 on the image
@@ -32,18 +47,16 @@ export interface FloorPlan {
   entryPoint: MarkerPoint | null;
   width: number;
   height: number;
+  position?: { x: number; y: number }; // Manual position override
 }
 
 export interface Transition {
   id: string;
   fromRoomId: string;
   toRoomId: string;
-  csvFiles: {
-    linearAccelerometer?: File;
-    gyroscope?: File;
-    accelerometer?: File;
-    gravity?: File;
-  };
+  datasets: TransitionDataset[];
+  selectedDatasetId: string | null;
+  csvFiles: TransitionCsvFiles;
   path: TransitionPath | null;
   processed: boolean;
 }

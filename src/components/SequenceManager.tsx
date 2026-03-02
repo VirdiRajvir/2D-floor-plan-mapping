@@ -60,7 +60,7 @@ export default function SequenceManager() {
       <div className="text-center">
         <h2 className="text-2xl font-bold text-white mb-2">Arrange Room Sequence</h2>
         <p className="text-gray-400">
-          Drag and drop to define the order rooms are connected. Room 1&apos;s exit leads to Room 2&apos;s entry, and so on.
+          Drag and drop to define visual room order on the map. You can still create flexible cross-room connections in the next step.
         </p>
       </div>
 
@@ -146,23 +146,8 @@ export default function SequenceManager() {
       </div>
 
       {/* Connection info */}
-      <div className="bg-gray-800/50 rounded-xl p-4 max-w-2xl mx-auto">
-        <h3 className="text-white font-medium mb-2">Connections to configure:</h3>
-        <div className="space-y-1">
-          {ordered.map((plan, index) => {
-            if (index >= ordered.length - 1) return null;
-            const next = ordered[index + 1];
-            return (
-              <div key={`${plan.id}-${next.id}`} className="flex items-center gap-2 text-sm text-gray-400">
-                <span className="text-blue-400">{plan.name}</span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
-                <span className="text-green-400">{next.name}</span>
-              </div>
-            );
-          })}
-        </div>
+      <div className="bg-gray-800/50 rounded-xl p-4 max-w-2xl mx-auto text-sm text-gray-400">
+        In the next step, you can connect any room to any room and add multiple pathway datasets per connection.
       </div>
     </div>
   );
