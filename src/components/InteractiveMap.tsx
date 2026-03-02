@@ -804,49 +804,36 @@ export default function InteractiveMap() {
   const totalDistance = transitions.reduce((sum, t) => sum + (t.path?.totalDistance || 0), 0);
   const processedCount = transitions.filter((t) => t.processed).length;
 
-  const [fireZone, setFireZone] = useState<{ x: number; y: number; r: number } | null>(null);
-  const [fireActive, setFireActive] = useState(false);
+  const [eps32Event, setEps32Event] = useState<{ x: number; y: number } | null>(null);
+  const [eps32EventActive, setEps32EventActive] = useState(false);
 
-  // Fire rescue zone movement logic (bounded to walkable region)
-  useEffect(() => {
-    if (!fireActive || !fireZone) return;
-    let running = true;
-    function moveZone() {
-      if (!running) return;
-      setFireZone((prev) => {
-        if (!prev) return null;
-        // Much smaller random walk step
-        let angle = Math.random() * 2 * Math.PI;
-        let dist = 4 + Math.random() * 3; // very little movement
-        let nx = prev.x + Math.cos(angle) * dist;
-        let ny = prev.y + Math.sin(angle) * dist;
-        // Clamp to walkable region
-        const clamped = closestWalkablePoint(nx, ny, walkableRegion);
-        return { ...prev, x: clamped.x, y: clamped.y };
-      });
-      setTimeout(moveZone, 400 + Math.random() * 200);
-    }
-    moveZone();
-    return () => { running = false; };
-  }, [fireActive, fireZone, walkableRegion]);
-
-  // Trigger fire event (start in a random walkable region)
-  const triggerFireRescue = () => {
-    // Pick a random room or path segment
-    let x = 0, y = 0;
-    if (walkableRegion.rects.length > 0) {
-      const r = walkableRegion.rects[Math.floor(Math.random() * walkableRegion.rects.length)];
-      x = r.x + r.w * Math.random();
-      y = r.y + r.h * Math.random();
-    } else if (walkableRegion.pathSegments.length > 0) {
-      const seg = walkableRegion.pathSegments[Math.floor(Math.random() * walkableRegion.pathSegments.length)];
-      const t = Math.random();
-      x = seg.x1 + (seg.x2 - seg.x1) * t;
-      y = seg.y1 + (seg.y2 - seg.y1) * t;
-    }
-    const r = (60 + Math.random() * 40) / 125; // 1/5 of previous (now 1/125 original)
-    setFireZone({ x, y, r });
-    setFireActive(true);
+  // Trigger EPS32 event at a random blue dot
+  const triggerEps32Event = () => {
+    // Collect all EPS32 points from floor plans
+    const epsPoints = floorPlans
+      .map((plan) => {
+        if (plan.eps32Point) {
+          // Find the room's SVG position for the blue dot
+          const room = rooms.find((r) => r.plan.id === plan.id);
+          if (!room) return null;
+          const imgX = room.x + IMG_PAD;
+          const imgY = room.y + IMG_PAD;
+          const imgW = room.width - IMG_PAD * 2;
+          const imgH = room.height - IMG_PAD * 2;
+          return {
+            x: imgX + (imgW * plan.eps32Point.x) / 100,
+            y: imgY + (imgH * plan.eps32Point.y) / 100,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean) as { x: number; y: number }[];
+    if (epsPoints.length === 0) return;
+    const idx = Math.floor(Math.random() * epsPoints.length);
+    setEps32Event(epsPoints[idx]);
+    setEps32EventActive(true);
+    // Auto-clear after 2 seconds
+    setTimeout(() => setEps32EventActive(false), 2000);
   };
 
   return (
@@ -859,16 +846,16 @@ export default function InteractiveMap() {
           zIndex: 10,
           padding: '12px 24px',
           fontSize: 18,
-          background: '#dc2626',
+          background: '#2563eb',
           color: '#fff',
           borderRadius: 8,
           border: 'none',
           boxShadow: '0 2px 8px #0002',
           cursor: 'pointer',
         }}
-        onClick={triggerFireRescue}
+        onClick={triggerEps32Event}
       >
-        Trigger Fire Rescue Event
+        Trigger Random EPS32 Event
       </button>
       <svg
         ref={svgRef}
@@ -932,26 +919,17 @@ export default function InteractiveMap() {
             <circle cx={playerPos.x} cy={playerPos.y} r={6} fill="#facc15" stroke="#1a1a1a" strokeWidth={2} />
           </g>
         )}
-        {/* Fire rescue zone (small dot, walkable only) */}
-        {fireZone && (
-          <g>
-            <circle
-              cx={fireZone.x}
-              cy={fireZone.y}
-              r={fireZone.r}
-              fill="#dc2626"
-              opacity={0.18}
-              stroke="#dc2626"
-              strokeWidth={2}
-            />
-            <circle
-              cx={fireZone.x}
-              cy={fireZone.y}
-              r={fireZone.r * 0.5}
-              fill="#dc2626"
-              opacity={0.22}
-            />
-          </g>
+        {/* EPS32 event highlight (blue zone) */}
+        {eps32EventActive && eps32Event && (
+          <circle
+            cx={eps32Event.x}
+            cy={eps32Event.y}
+            r={18}
+            fill="#2563eb"
+            opacity={0.22}
+            stroke="#2563eb"
+            strokeWidth={3}
+          />
         )}
       </svg>
       {/* Legend */}

@@ -12,111 +12,128 @@ function ImageMarker({
   imageUrl,
   exitPoint,
   entryPoint,
+  eps32Point,
   onSetExit,
   onSetEntry,
+  onSetEps32,
   label,
   showExit,
   showEntry,
+  showEps32,
 }: {
   imageUrl: string;
   exitPoint: MarkerPoint | null;
   entryPoint: MarkerPoint | null;
+  eps32Point?: MarkerPoint | null;
   onSetExit: (point: MarkerPoint) => void;
   onSetEntry: (point: MarkerPoint) => void;
+  onSetEps32?: (point: MarkerPoint) => void;
   label: string;
   showExit: boolean;
   showEntry: boolean;
+  showEps32?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<PointMode>(null);
+  const [eps32Mode, setEps32Mode] = useState(false);
 
   const handleClick = (e: React.MouseEvent) => {
+    if (eps32Mode && onSetEps32 && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = ((e.clientX - rect.left) / rect.width) * 100;
+      const y = ((e.clientY - rect.top) / rect.height) * 100;
+      onSetEps32({ x, y });
+      setEps32Mode(false);
+      return;
+    }
     if (!mode || !containerRef.current) return;
-
     const rect = containerRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
-
     if (mode === 'exit') {
       onSetExit({ x, y });
-    } else {
+    } else if (mode === 'entry') {
       onSetEntry({ x, y });
     }
     setMode(null);
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-300">{label}</span>
-        <div className="flex gap-2">
-          {showExit && (
-            <button
-              onClick={() => setMode(mode === 'exit' ? null : 'exit')}
-              className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors ${
-                mode === 'exit'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              {mode === 'exit' ? 'Click image to set exit...' : exitPoint ? 'Move Exit Point' : 'Set Exit Point'}
-            </button>
-          )}
-          {showEntry && (
-            <button
-              onClick={() => setMode(mode === 'entry' ? null : 'entry')}
-              className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors ${
-                mode === 'entry'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-              }`}
-            >
-              {mode === 'entry' ? 'Click image to set entry...' : entryPoint ? 'Move Entry Point' : 'Set Entry Point'}
-            </button>
-          )}
+    <div ref={containerRef} className="relative w-full aspect-video bg-gray-900 rounded-xl overflow-hidden group" onClick={handleClick}>
+      <img src={imageUrl} alt="Floor plan" className="w-full h-full object-contain select-none pointer-events-none" />
+
+      {/* Exit point marker */}
+      {exitPoint && (
+        <div
+          className="absolute w-6 h-6 -ml-3 -mt-3 flex items-center justify-center"
+          style={{ left: `${exitPoint.x}%`, top: `${exitPoint.y}%` }}
+        >
+          <div className="w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow-lg animate-pulse" />
+          <span className="absolute -top-5 text-[10px] font-bold text-red-400 bg-gray-900/80 px-1 rounded whitespace-nowrap">
+            EXIT
+          </span>
         </div>
-      </div>
+      )}
 
-      <div
-        ref={containerRef}
-        onClick={handleClick}
-        className={`relative bg-gray-900 rounded-lg overflow-hidden border-2 transition-colors ${
-          mode ? 'border-yellow-500 cursor-crosshair' : 'border-gray-700'
-        }`}
-      >
-        <img
-          src={imageUrl}
-          alt={label}
-          className="w-full h-auto max-h-[300px] object-contain"
-          draggable={false}
-        />
+      {/* Entry point marker */}
+      {entryPoint && (
+        <div
+          className="absolute w-6 h-6 -ml-3 -mt-3 flex items-center justify-center"
+          style={{ left: `${entryPoint.x}%`, top: `${entryPoint.y}%` }}
+        >
+          <div className="w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-lg animate-pulse" />
+          <span className="absolute -top-5 text-[10px] font-bold text-green-400 bg-gray-900/80 px-1 rounded whitespace-nowrap">
+            ENTRY
+          </span>
+        </div>
+      )}
 
-        {/* Exit point marker */}
-        {exitPoint && (
-          <div
-            className="absolute w-6 h-6 -ml-3 -mt-3 flex items-center justify-center"
-            style={{ left: `${exitPoint.x}%`, top: `${exitPoint.y}%` }}
-          >
-            <div className="w-4 h-4 bg-red-500 rounded-full border-2 border-white shadow-lg animate-pulse" />
-            <span className="absolute -top-5 text-[10px] font-bold text-red-400 bg-gray-900/80 px-1 rounded whitespace-nowrap">
-              EXIT
-            </span>
-          </div>
-        )}
+      {/* EPS32 (blue dot) marker */}
+      {showEps32 && eps32Point && (
+        <div
+          className="absolute"
+          style={{
+            left: `${eps32Point.x}%`,
+            top: `${eps32Point.y}%`,
+            transform: 'translate(-50%, -50%)',
+            pointerEvents: 'none',
+          }}
+        >
+          <div className="w-5 h-5 rounded-full bg-blue-500 border-2 border-white shadow-lg" />
+        </div>
+      )}
+      {/* Set Exit button */}
+      {showExit && (
+        <button
+          type="button"
+          className="absolute bottom-2 left-2 px-2 py-1 bg-red-700 text-white text-xs rounded shadow hover:bg-red-800"
+          onClick={e => { e.stopPropagation(); setMode('exit'); }}
+        >
+          {mode === 'exit' ? 'Click map to set EXIT' : 'Set Exit'}
+        </button>
+      )}
 
-        {/* Entry point marker */}
-        {entryPoint && (
-          <div
-            className="absolute w-6 h-6 -ml-3 -mt-3 flex items-center justify-center"
-            style={{ left: `${entryPoint.x}%`, top: `${entryPoint.y}%` }}
-          >
-            <div className="w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-lg animate-pulse" />
-            <span className="absolute -top-5 text-[10px] font-bold text-green-400 bg-gray-900/80 px-1 rounded whitespace-nowrap">
-              ENTRY
-            </span>
-          </div>
-        )}
-      </div>
+      {/* Set Entry button */}
+      {showEntry && (
+        <button
+          type="button"
+          className="absolute bottom-10 left-2 px-2 py-1 bg-green-700 text-white text-xs rounded shadow hover:bg-green-800"
+          onClick={e => { e.stopPropagation(); setMode('entry'); }}
+        >
+          {mode === 'entry' ? 'Click map to set ENTRY' : 'Set Entry'}
+        </button>
+      )}
+
+      {/* Set EPS32 button */}
+      {showEps32 && (
+        <button
+          type="button"
+          className="absolute bottom-2 right-2 px-2 py-1 bg-blue-700 text-white text-xs rounded shadow hover:bg-blue-800"
+          onClick={(e) => { e.stopPropagation(); setEps32Mode(true); }}
+        >
+          {eps32Mode ? 'Click map to set EPS32' : 'Set EPS32'}
+        </button>
+      )}
     </div>
   );
 }
@@ -134,6 +151,7 @@ export default function TransitionEditor() {
     setTransitionPath,
     setExitPoint,
     setEntryPoint,
+    setEps32Point,
     isProcessing,
     setIsProcessing,
     selectedTransitionId,
@@ -385,22 +403,28 @@ export default function TransitionEditor() {
               imageUrl={fromRoom.imageUrl}
               exitPoint={fromRoom.exitPoint}
               entryPoint={fromRoom.entryPoint}
+              eps32Point={fromRoom.eps32Point}
               onSetExit={(point) => setExitPoint(fromRoom.id, point)}
               onSetEntry={(point) => setEntryPoint(fromRoom.id, point)}
+              onSetEps32={(point) => setEps32Point(fromRoom.id, point)}
               label={`${fromRoom.name} (Exit)`}
               showExit={true}
               showEntry={true}
+              showEps32={true}
             />
 
             <ImageMarker
               imageUrl={toRoom.imageUrl}
               exitPoint={toRoom.exitPoint}
               entryPoint={toRoom.entryPoint}
+              eps32Point={toRoom.eps32Point}
               onSetExit={(point) => setExitPoint(toRoom.id, point)}
               onSetEntry={(point) => setEntryPoint(toRoom.id, point)}
+              onSetEps32={(point) => setEps32Point(toRoom.id, point)}
               label={`${toRoom.name} (Entry)`}
               showExit={true}
               showEntry={true}
+              showEps32={true}
             />
           </div>
 

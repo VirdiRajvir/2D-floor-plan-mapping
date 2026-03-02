@@ -29,8 +29,10 @@ interface MapStore {
   reorderFloorPlans: (orderedIds: string[]) => void;
   setExitPoint: (id: string, point: MarkerPoint | null) => void;
   setEntryPoint: (id: string, point: MarkerPoint | null) => void;
+  setEps32Point: (id: string, point: MarkerPoint | null) => void;
   setFloorPlanDimensions: (id: string, width: number, height: number) => void;
   setFloorPlanPosition: (id: string, x: number, y: number) => void;
+  setFloorPlanOutline: (id: string, outline: string | null) => void;
 
   // Transition actions
   addTransition: (fromRoomId: string, toRoomId: string) => string | null;
@@ -189,6 +191,14 @@ export const useMapStore = create<MapStore>((set, get) => ({
     }));
   },
 
+  setEps32Point: (id, point) => {
+    set((state) => ({
+      floorPlans: state.floorPlans.map((p) =>
+        p.id === id ? { ...p, eps32Point: point } : p
+      ),
+    }));
+  },
+
   setFloorPlanDimensions: (id, width, height) => {
     set((state) => ({
       floorPlans: state.floorPlans.map((p) =>
@@ -201,6 +211,14 @@ export const useMapStore = create<MapStore>((set, get) => ({
     set((state) => ({
       floorPlans: state.floorPlans.map((p) =>
         p.id === id ? { ...p, position: { x, y } } : p
+      ),
+    }));
+  },
+
+  setFloorPlanOutline: (id, outline) => {
+    set((state) => ({
+      floorPlans: state.floorPlans.map((p) =>
+        p.id === id ? { ...p, outline } : p
       ),
     }));
   },

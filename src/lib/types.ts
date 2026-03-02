@@ -37,6 +37,8 @@ export interface MarkerPoint {
   y: number; // percentage 0-100 on the image
 }
 
+import type { FloorPlanOutline } from './floorplanExtractor';
+
 export interface FloorPlan {
   id: string;
   name: string;
@@ -45,9 +47,11 @@ export interface FloorPlan {
   order: number;
   exitPoint: MarkerPoint | null;
   entryPoint: MarkerPoint | null;
+  eps32Point?: MarkerPoint | null; // Blue dot location
   width: number;
   height: number;
   position?: { x: number; y: number }; // Manual position override
+  outline?: FloorPlanOutline | null; // Wall/obstacle data
 }
 
 export interface Transition {
