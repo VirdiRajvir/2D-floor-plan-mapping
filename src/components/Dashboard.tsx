@@ -139,6 +139,12 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-4 text-sm">
+            <a
+              href="/extract"
+              className="px-3 py-1.5 bg-purple-600/20 border border-purple-500/30 text-purple-400 rounded-lg hover:bg-purple-600/30 transition-colors font-medium"
+            >
+              Floor Plan Extractor
+            </a>
             <div className="flex items-center gap-2 text-gray-400">
               <div className={`w-2 h-2 rounded-full ${floorPlans.length > 0 ? 'bg-green-500' : 'bg-gray-600'}`} />
               {floorPlans.length} Room{floorPlans.length !== 1 ? 's' : ''}

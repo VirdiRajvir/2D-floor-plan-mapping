@@ -2,7 +2,6 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useMapStore } from '@/store/mapStore';
-import { normalizePathToBox } from '@/lib/pathCalculator';
 import { FloorPlan, Transition, PathPoint } from '@/lib/types';
 
 const ROOM_WIDTH = 280;
@@ -44,6 +43,14 @@ function calculateLayout(
       );
 
       const corridorX = currentX + ROOM_WIDTH;
+      const fromRoomPos = rooms[i];
+      const toRoomPos: RoomPosition = {
+        x: currentX + ROOM_WIDTH + CORRIDOR_WIDTH,
+        y: centerY - ROOM_HEIGHT / 2,
+        width: ROOM_WIDTH,
+        height: ROOM_HEIGHT,
+        plan: orderedPlans[i + 1],
+      };
       corridors.push({
         x: corridorX,
         y: centerY - 40,
@@ -52,6 +59,8 @@ function calculateLayout(
         transition: transition || null,
         fromRoom: plan,
         toRoom: orderedPlans[i + 1],
+        fromRoomPos,
+        toRoomPos,
       });
 
       currentX += ROOM_WIDTH + CORRIDOR_WIDTH;
@@ -69,6 +78,68 @@ interface CorridorPosition {
   transition: Transition | null;
   fromRoom: FloorPlan;
   toRoom: FloorPlan;
+  fromRoomPos: RoomPosition;
+  toRoomPos: RoomPosition;
+}
+
+function getMarkerSVGPosition(
+  roomPos: RoomPosition,
+  marker: { x: number; y: number } | undefined,
+  side: 'right' | 'left'
+): { x: number; y: number } {
+  if (marker) {
+    return {
+      x: roomPos.x + 4 + ((roomPos.width - 8) * marker.x) / 100,
+      y: roomPos.y + 4 + ((roomPos.height - 36) * marker.y) / 100,
+    };
+  }
+  // Default: center of left/right edge
+  return {
+    x: side === 'right' ? roomPos.x + roomPos.width : roomPos.x,
+    y: roomPos.y + roomPos.height / 2,
+  };
+}
+
+function remapPathBetweenPoints(
+  pathPoints: PathPoint[],
+  start: { x: number; y: number },
+  end: { x: number; y: number }
+): { x: number; y: number }[] {
+  if (pathPoints.length < 2) return [start, end];
+
+  const minX = Math.min(...pathPoints.map((p) => p.x));
+  const maxX = Math.max(...pathPoints.map((p) => p.x));
+  const minY = Math.min(...pathPoints.map((p) => p.y));
+  const maxY = Math.max(...pathPoints.map((p) => p.y));
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+
+  const normalized = pathPoints.map((p) => ({
+    x: (p.x - minX) / rangeX,
+    y: (p.y - minY) / rangeY,
+  }));
+
+  const first = normalized[0];
+  const last = normalized[normalized.length - 1];
+
+  const pathLength = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+  const deviationScale = pathLength * 0.25;
+
+  return normalized.map((p, i) => {
+    const t = i / (normalized.length - 1);
+    const baseX = start.x + t * (end.x - start.x);
+    const baseY = start.y + t * (end.y - start.y);
+
+    const normBaseX = first.x + t * (last.x - first.x);
+    const normBaseY = first.y + t * (last.y - first.y);
+    const devX = p.x - normBaseX;
+    const devY = p.y - normBaseY;
+
+    return {
+      x: baseX + devX * deviationScale,
+      y: baseY + devY * deviationScale,
+    };
+  });
 }
 
 function RoomCard({ room, isSelected, onClick }: { room: RoomPosition; isSelected: boolean; onClick: () => void }) {
@@ -161,37 +232,41 @@ function RoomCard({ room, isSelected, onClick }: { room: RoomPosition; isSelecte
   );
 }
 
-function CorridorPath({ corridor }: { corridor: CorridorPosition }) {
+function CorridorBackground({ corridor }: { corridor: CorridorPosition }) {
   const transition = corridor.transition;
   const hasPath = transition?.path && transition.path.points.length > 1;
 
-  if (hasPath && transition?.path) {
-    const normalized = normalizePathToBox(
-      transition.path.points,
-      corridor.width,
-      corridor.height,
-      10
-    );
+  return (
+    <rect
+      x={corridor.x}
+      y={corridor.y}
+      width={corridor.width}
+      height={corridor.height}
+      rx={8}
+      fill={hasPath ? '#0f172a' : '#0a0a0a'}
+      stroke={hasPath ? '#1e3a5f' : '#374151'}
+      strokeWidth={1}
+      strokeDasharray="4 4"
+    />
+  );
+}
 
-    const pathData = normalized
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${corridor.x + p.x} ${corridor.y + p.y}`)
+function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
+  const transition = corridor.transition;
+  const hasPath = transition?.path && transition.path.points.length > 1;
+
+  const exitPos = getMarkerSVGPosition(corridor.fromRoomPos, corridor.fromRoom.exitPoint ?? undefined, 'right');
+  const entryPos = getMarkerSVGPosition(corridor.toRoomPos, corridor.toRoom.entryPoint ?? undefined, 'left');
+
+  if (hasPath && transition?.path) {
+    const mapped = remapPathBetweenPoints(transition.path.points, exitPos, entryPos);
+
+    const pathData = mapped
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
       .join(' ');
 
     return (
       <g>
-        {/* Corridor background */}
-        <rect
-          x={corridor.x}
-          y={corridor.y}
-          width={corridor.width}
-          height={corridor.height}
-          rx={8}
-          fill="#0f172a"
-          stroke="#1e3a5f"
-          strokeWidth={1}
-          strokeDasharray="4 4"
-        />
-
         {/* Animated path */}
         <path
           d={pathData}
@@ -214,15 +289,21 @@ function CorridorPath({ corridor }: { corridor: CorridorPosition }) {
         />
 
         {/* Direction arrows along path */}
-        {normalized.filter((_, i) => i % Math.max(1, Math.floor(normalized.length / 3)) === 0 && i > 0).map((p, i) => {
-          const prev = normalized[Math.max(0, normalized.indexOf(p) - 1)];
+        {mapped.filter((_, i) => i % Math.max(1, Math.floor(mapped.length / 3)) === 0 && i > 0).map((p, i) => {
+          const idx = mapped.indexOf(p);
+          const prev = mapped[Math.max(0, idx - 1)];
           const angle = Math.atan2(p.y - prev.y, p.x - prev.x) * (180 / Math.PI);
           return (
-            <g key={i} transform={`translate(${corridor.x + p.x}, ${corridor.y + p.y}) rotate(${angle})`}>
+            <g key={i} transform={`translate(${p.x}, ${p.y}) rotate(${angle})`}>
               <polygon points="0,-3 6,0 0,3" fill="#60a5fa" />
             </g>
           );
         })}
+
+        {/* Start dot (exit) */}
+        <circle cx={exitPos.x} cy={exitPos.y} r={4} fill="#ef4444" stroke="#ef4444" strokeWidth={2} opacity={0.8} />
+        {/* End dot (entry) */}
+        <circle cx={entryPos.x} cy={entryPos.y} r={4} fill="#22c55e" stroke="#22c55e" strokeWidth={2} opacity={0.8} />
 
         {/* Distance label */}
         <rect
@@ -248,36 +329,25 @@ function CorridorPath({ corridor }: { corridor: CorridorPosition }) {
     );
   }
 
-  // No path data - show dashed connector  
+  // No path data - show dashed connector from exit to entry
   return (
     <g>
-      <rect
-        x={corridor.x}
-        y={corridor.y}
-        width={corridor.width}
-        height={corridor.height}
-        rx={8}
-        fill="#0a0a0a"
-        stroke="#374151"
-        strokeWidth={1}
-        strokeDasharray="6 4"
-      />
       <line
-        x1={corridor.x + 10}
-        y1={corridor.y + corridor.height / 2}
-        x2={corridor.x + corridor.width - 10}
-        y2={corridor.y + corridor.height / 2}
+        x1={exitPos.x}
+        y1={exitPos.y}
+        x2={entryPos.x}
+        y2={entryPos.y}
         stroke="#4b5563"
         strokeWidth={2}
         strokeDasharray="8 6"
       />
       <polygon
-        points={`${corridor.x + corridor.width - 15},${corridor.y + corridor.height / 2 - 5} ${corridor.x + corridor.width - 5},${corridor.y + corridor.height / 2} ${corridor.x + corridor.width - 15},${corridor.y + corridor.height / 2 + 5}`}
+        points={`${entryPos.x - 10},${entryPos.y - 5} ${entryPos.x},${entryPos.y} ${entryPos.x - 10},${entryPos.y + 5}`}
         fill="#4b5563"
       />
       <text
-        x={corridor.x + corridor.width / 2}
-        y={corridor.y + corridor.height / 2 - 10}
+        x={(exitPos.x + entryPos.x) / 2}
+        y={Math.min(exitPos.y, entryPos.y) - 10}
         textAnchor="middle"
         fill="#6b7280"
         fontSize={10}
@@ -445,9 +515,9 @@ export default function InteractiveMap() {
             FACILITY MAP — {ordered.length} Rooms Connected
           </text>
 
-          {/* Corridors first (behind rooms) */}
+          {/* Corridor backgrounds (behind rooms) */}
           {corridors.map((corridor, i) => (
-            <CorridorPath key={i} corridor={corridor} />
+            <CorridorBackground key={`bg-${i}`} corridor={corridor} />
           ))}
 
           {/* Rooms */}
@@ -458,6 +528,11 @@ export default function InteractiveMap() {
               isSelected={selectedFloorPlanId === room.plan.id}
               onClick={() => selectFloorPlan(room.plan.id)}
             />
+          ))}
+
+          {/* Connector paths (on top of rooms, anchored to exit/entry markers) */}
+          {corridors.map((corridor, i) => (
+            <ConnectorPath key={`path-${i}`} corridor={corridor} />
           ))}
         </svg>
       </div>
