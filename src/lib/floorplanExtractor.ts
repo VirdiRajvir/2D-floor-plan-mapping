@@ -45,7 +45,7 @@ const DEFAULT_OPTIONS: Omit<ExtractorOptions, 'apiKey'> = {
   outputWidth: 900,
   outputHeight: 750,
   wallThickness: 3,
-  model: 'gpt-4o',
+  model: 'gpt-5.2',
   passes: 2,
 };
 
@@ -192,7 +192,7 @@ async function callVisionAPI(
 
   const response = await client.chat.completions.create({
     model,
-    max_tokens: 16000,
+    max_completion_tokens: 16000,
     temperature: 0.1,
     messages: [
       {
@@ -263,7 +263,7 @@ export async function extractFloorPlanOutline(
       mimeType,
       prompt,
       opts.apiKey,
-      opts.model ?? 'gpt-4o'
+      opts.model ?? 'gpt-5.2'
     );
 
     if (!rawResult) {

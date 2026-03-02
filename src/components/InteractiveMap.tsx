@@ -4,9 +4,9 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useMapStore } from '@/store/mapStore';
 import { FloorPlan, Transition, PathPoint } from '@/lib/types';
 
-const ROOM_WIDTH = 280;
-const ROOM_HEIGHT = 200;
-const CORRIDOR_WIDTH = 160;
+const ROOM_WIDTH = 320;
+const ROOM_HEIGHT = 220;
+const CORRIDOR_WIDTH = 100;
 const PADDING = 40;
 
 interface RoomPosition {
@@ -87,10 +87,14 @@ function getMarkerSVGPosition(
   marker: { x: number; y: number } | undefined,
   side: 'right' | 'left'
 ): { x: number; y: number } {
+  const imgX = roomPos.x + IMG_PAD;
+  const imgY = roomPos.y + IMG_PAD;
+  const imgW = roomPos.width - IMG_PAD * 2;
+  const imgH = roomPos.height - IMG_PAD * 2;
   if (marker) {
     return {
-      x: roomPos.x + 4 + ((roomPos.width - 8) * marker.x) / 100,
-      y: roomPos.y + 4 + ((roomPos.height - 36) * marker.y) / 100,
+      x: imgX + (imgW * marker.x) / 100,
+      y: imgY + (imgH * marker.y) / 100,
     };
   }
   // Default: center of left/right edge
@@ -107,124 +111,137 @@ function remapPathBetweenPoints(
 ): { x: number; y: number }[] {
   if (pathPoints.length < 2) return [start, end];
 
-  const minX = Math.min(...pathPoints.map((p) => p.x));
-  const maxX = Math.max(...pathPoints.map((p) => p.x));
-  const minY = Math.min(...pathPoints.map((p) => p.y));
-  const maxY = Math.max(...pathPoints.map((p) => p.y));
-  const rangeX = maxX - minX || 1;
-  const rangeY = maxY - minY || 1;
+  // Use first and last raw points as the original endpoints
+  const first = pathPoints[0];
+  const last = pathPoints[pathPoints.length - 1];
 
-  const normalized = pathPoints.map((p) => ({
-    x: (p.x - minX) / rangeX,
-    y: (p.y - minY) / rangeY,
-  }));
+  // Original vector (first → last)
+  const origDx = last.x - first.x;
+  const origDy = last.y - first.y;
+  const origLen = Math.sqrt(origDx * origDx + origDy * origDy) || 1;
+  const origAngle = Math.atan2(origDy, origDx);
 
-  const first = normalized[0];
-  const last = normalized[normalized.length - 1];
+  // Target vector (start → end)
+  const targetDx = end.x - start.x;
+  const targetDy = end.y - start.y;
+  const targetLen = Math.sqrt(targetDx * targetDx + targetDy * targetDy) || 1;
+  const targetAngle = Math.atan2(targetDy, targetDx);
 
-  const pathLength = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-  const deviationScale = pathLength * 0.25;
+  // Uniform scale + rotation to map original shape onto target endpoints
+  const scale = targetLen / origLen;
+  const rotation = targetAngle - origAngle;
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
 
-  return normalized.map((p, i) => {
-    const t = i / (normalized.length - 1);
-    const baseX = start.x + t * (end.x - start.x);
-    const baseY = start.y + t * (end.y - start.y);
-
-    const normBaseX = first.x + t * (last.x - first.x);
-    const normBaseY = first.y + t * (last.y - first.y);
-    const devX = p.x - normBaseX;
-    const devY = p.y - normBaseY;
-
-    return {
-      x: baseX + devX * deviationScale,
-      y: baseY + devY * deviationScale,
-    };
+  return pathPoints.map((p) => {
+    // Translate so first point is at origin
+    const dx = p.x - first.x;
+    const dy = p.y - first.y;
+    // Scale then rotate
+    const rx = (dx * cosR - dy * sinR) * scale;
+    const ry = (dx * sinR + dy * cosR) * scale;
+    // Translate to start position
+    return { x: start.x + rx, y: start.y + ry };
   });
 }
 
+const IMG_PAD = 2;
+
 function RoomCard({ room, isSelected, onClick }: { room: RoomPosition; isSelected: boolean; onClick: () => void }) {
+  const imgX = room.x + IMG_PAD;
+  const imgY = room.y + IMG_PAD;
+  const imgW = room.width - IMG_PAD * 2;
+  const imgH = room.height - IMG_PAD * 2;
+
   return (
     <g onClick={onClick} className="cursor-pointer">
-      {/* Room background */}
+      {/* Subtle outer glow when selected */}
+      {isSelected && (
+        <rect
+          x={room.x - 3}
+          y={room.y - 3}
+          width={room.width + 6}
+          height={room.height + 6}
+          rx={4}
+          fill="none"
+          stroke="#3b82f6"
+          strokeWidth={1.5}
+          opacity={0.5}
+        />
+      )}
+
+      {/* Thin border matching floor-plan line style */}
       <rect
         x={room.x}
         y={room.y}
         width={room.width}
         height={room.height}
-        rx={12}
-        fill="#1f2937"
-        stroke={isSelected ? '#3b82f6' : '#374151'}
-        strokeWidth={isSelected ? 3 : 1.5}
-        className="transition-all"
+        rx={2}
+        fill="#f8f8f8"
+        stroke="#333"
+        strokeWidth={1.2}
       />
 
-      {/* Floor plan image */}
+      {/* Floor plan image — fills almost the entire card */}
       <clipPath id={`clip-${room.plan.id}`}>
-        <rect x={room.x + 4} y={room.y + 4} width={room.width - 8} height={room.height - 36} rx={8} />
+        <rect x={imgX} y={imgY} width={imgW} height={imgH} rx={1} />
       </clipPath>
       <image
         href={room.plan.imageUrl}
-        x={room.x + 4}
-        y={room.y + 4}
-        width={room.width - 8}
-        height={room.height - 36}
+        x={imgX}
+        y={imgY}
+        width={imgW}
+        height={imgH}
         clipPath={`url(#clip-${room.plan.id})`}
         preserveAspectRatio="xMidYMid meet"
       />
 
-      {/* Room name */}
-      <rect x={room.x} y={room.y + room.height - 32} width={room.width} height={32} rx={0} fill="#111827" opacity={0.9} />
-      <rect x={room.x} y={room.y + room.height - 1} width={room.width} height={1} rx={0} fill="transparent" />
+      {/* Room label — small tag below image */}
+      <rect
+        x={room.x + room.width / 2 - 40}
+        y={room.y + room.height + 4}
+        width={80}
+        height={20}
+        rx={3}
+        fill="#1a1a1a"
+        opacity={0.85}
+      />
       <text
         x={room.x + room.width / 2}
-        y={room.y + room.height - 12}
+        y={room.y + room.height + 17}
         textAnchor="middle"
-        fill="white"
-        fontSize={13}
+        fill="#e5e5e5"
+        fontSize={11}
         fontWeight={600}
         fontFamily="system-ui"
       >
         {room.plan.name}
       </text>
 
-      {/* Order badge */}
-      <circle cx={room.x + 20} cy={room.y + 20} r={14} fill="#2563eb" />
-      <text
-        x={room.x + 20}
-        y={room.y + 25}
-        textAnchor="middle"
-        fill="white"
-        fontSize={12}
-        fontWeight={700}
-        fontFamily="system-ui"
-      >
-        {room.plan.order + 1}
-      </text>
-
-      {/* Exit point */}
+      {/* Exit point — small red marker */}
       {room.plan.exitPoint && (
         <g>
           <circle
-            cx={room.x + 4 + ((room.width - 8) * room.plan.exitPoint.x) / 100}
-            cy={room.y + 4 + ((room.height - 36) * room.plan.exitPoint.y) / 100}
-            r={6}
-            fill="#ef4444"
-            stroke="white"
-            strokeWidth={2}
+            cx={imgX + (imgW * room.plan.exitPoint.x) / 100}
+            cy={imgY + (imgH * room.plan.exitPoint.y) / 100}
+            r={5}
+            fill="#dc2626"
+            stroke="#1a1a1a"
+            strokeWidth={1.5}
           />
         </g>
       )}
 
-      {/* Entry point */}
+      {/* Entry point — small green marker */}
       {room.plan.entryPoint && (
         <g>
           <circle
-            cx={room.x + 4 + ((room.width - 8) * room.plan.entryPoint.x) / 100}
-            cy={room.y + 4 + ((room.height - 36) * room.plan.entryPoint.y) / 100}
-            r={6}
-            fill="#22c55e"
-            stroke="white"
-            strokeWidth={2}
+            cx={imgX + (imgW * room.plan.entryPoint.x) / 100}
+            cy={imgY + (imgH * room.plan.entryPoint.y) / 100}
+            r={5}
+            fill="#16a34a"
+            stroke="#1a1a1a"
+            strokeWidth={1.5}
           />
         </g>
       )}
@@ -233,20 +250,15 @@ function RoomCard({ room, isSelected, onClick }: { room: RoomPosition; isSelecte
 }
 
 function CorridorBackground({ corridor }: { corridor: CorridorPosition }) {
-  const transition = corridor.transition;
-  const hasPath = transition?.path && transition.path.points.length > 1;
-
+  // Seamless gap filler — light background matching the floor plan paper tone
   return (
     <rect
       x={corridor.x}
-      y={corridor.y}
+      y={corridor.fromRoomPos.y}
       width={corridor.width}
-      height={corridor.height}
-      rx={8}
-      fill={hasPath ? '#0f172a' : '#0a0a0a'}
-      stroke={hasPath ? '#1e3a5f' : '#374151'}
-      strokeWidth={1}
-      strokeDasharray="4 4"
+      height={corridor.fromRoomPos.height}
+      fill="#0d1117"
+      opacity={0.6}
     />
   );
 }
@@ -265,61 +277,64 @@ function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
       .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
       .join(' ');
 
+    // Evenly spaced arrow indices
+    const arrowCount = 4;
+    const arrowIndices: number[] = [];
+    for (let a = 1; a <= arrowCount; a++) {
+      arrowIndices.push(Math.round((a / (arrowCount + 1)) * (mapped.length - 1)));
+    }
+
     return (
       <g>
-        {/* Animated path */}
+        {/* Path outline — dark stroke matching floor plan line weight */}
         <path
           d={pathData}
           fill="none"
-          stroke="#3b82f6"
-          strokeWidth={3}
+          stroke="#1a1a1a"
+          strokeWidth={4}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* Path fill — colored core */}
+        <path
+          d={pathData}
+          fill="none"
+          stroke="#dc2626"
+          strokeWidth={2}
           strokeLinecap="round"
           strokeLinejoin="round"
           className="animate-draw-path"
         />
 
-        {/* Path glow */}
-        <path
-          d={pathData}
-          fill="none"
-          stroke="#3b82f6"
-          strokeWidth={8}
-          strokeLinecap="round"
-          opacity={0.15}
-        />
-
-        {/* Direction arrows along path */}
-        {mapped.filter((_, i) => i % Math.max(1, Math.floor(mapped.length / 3)) === 0 && i > 0).map((p, i) => {
-          const idx = mapped.indexOf(p);
+        {/* Direction arrows along path — architectural style */}
+        {arrowIndices.map((idx, i) => {
+          const p = mapped[idx];
           const prev = mapped[Math.max(0, idx - 1)];
           const angle = Math.atan2(p.y - prev.y, p.x - prev.x) * (180 / Math.PI);
           return (
             <g key={i} transform={`translate(${p.x}, ${p.y}) rotate(${angle})`}>
-              <polygon points="0,-3 6,0 0,3" fill="#60a5fa" />
+              <polygon points="-4,-4 5,0 -4,4" fill="#1a1a1a" />
+              <polygon points="-3,-3 4,0 -3,3" fill="#dc2626" />
             </g>
           );
         })}
 
-        {/* Start dot (exit) */}
-        <circle cx={exitPos.x} cy={exitPos.y} r={4} fill="#ef4444" stroke="#ef4444" strokeWidth={2} opacity={0.8} />
-        {/* End dot (entry) */}
-        <circle cx={entryPos.x} cy={entryPos.y} r={4} fill="#22c55e" stroke="#22c55e" strokeWidth={2} opacity={0.8} />
-
-        {/* Distance label */}
+        {/* Distance label — subtle inline tag */}
         <rect
-          x={corridor.x + corridor.width / 2 - 30}
-          y={corridor.y + corridor.height + 4}
-          width={60}
-          height={22}
-          rx={4}
-          fill="#1e3a5f"
+          x={corridor.x + corridor.width / 2 - 28}
+          y={corridor.fromRoomPos.y + corridor.fromRoomPos.height + 6}
+          width={56}
+          height={18}
+          rx={3}
+          fill="#1a1a1a"
+          opacity={0.85}
         />
         <text
           x={corridor.x + corridor.width / 2}
-          y={corridor.y + corridor.height + 19}
+          y={corridor.fromRoomPos.y + corridor.fromRoomPos.height + 18}
           textAnchor="middle"
-          fill="#93c5fd"
-          fontSize={11}
+          fill="#e5e5e5"
+          fontSize={10}
           fontWeight={600}
           fontFamily="monospace"
         >
@@ -329,7 +344,7 @@ function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
     );
   }
 
-  // No path data - show dashed connector from exit to entry
+  // No path data - show thin dashed connector
   return (
     <g>
       <line
@@ -337,20 +352,20 @@ function ConnectorPath({ corridor }: { corridor: CorridorPosition }) {
         y1={exitPos.y}
         x2={entryPos.x}
         y2={entryPos.y}
-        stroke="#4b5563"
-        strokeWidth={2}
-        strokeDasharray="8 6"
+        stroke="#555"
+        strokeWidth={1.2}
+        strokeDasharray="6 4"
       />
       <polygon
-        points={`${entryPos.x - 10},${entryPos.y - 5} ${entryPos.x},${entryPos.y} ${entryPos.x - 10},${entryPos.y + 5}`}
-        fill="#4b5563"
+        points={`${entryPos.x - 7},${entryPos.y - 3} ${entryPos.x},${entryPos.y} ${entryPos.x - 7},${entryPos.y + 3}`}
+        fill="#555"
       />
       <text
         x={(exitPos.x + entryPos.x) / 2}
-        y={Math.min(exitPos.y, entryPos.y) - 10}
+        y={Math.min(exitPos.y, entryPos.y) - 8}
         textAnchor="middle"
-        fill="#6b7280"
-        fontSize={10}
+        fill="#888"
+        fontSize={9}
         fontFamily="system-ui"
       >
         No data
@@ -477,7 +492,7 @@ export default function InteractiveMap() {
       {/* Map canvas */}
       <div
         ref={containerRef}
-        className="bg-gray-950 rounded-xl border border-gray-800 overflow-hidden"
+        className="bg-[#0d1117] rounded-xl border border-gray-800/40 overflow-hidden"
         style={{ height: '500px' }}
       >
         <svg
@@ -492,10 +507,10 @@ export default function InteractiveMap() {
           onMouseLeave={handleMouseUp}
           className={isPanning ? 'cursor-grabbing' : 'cursor-grab'}
         >
-          {/* Grid background */}
+          {/* Subtle dot grid background */}
           <defs>
-            <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-              <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1a2e" strokeWidth="0.5" />
+            <pattern id="dotgrid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <circle cx="10" cy="10" r="0.5" fill="#333" />
             </pattern>
             <style>{`
               @keyframes drawPath {
@@ -508,12 +523,8 @@ export default function InteractiveMap() {
               }
             `}</style>
           </defs>
-          <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="url(#grid)" />
-
-          {/* Title */}
-          <text x={PADDING} y={140} fill="#9ca3af" fontSize={14} fontFamily="system-ui">
-            FACILITY MAP — {ordered.length} Rooms Connected
-          </text>
+          <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="#0d1117" />
+          <rect x={viewBox.x - 1000} y={viewBox.y - 1000} width={viewBox.w + 2000} height={viewBox.h + 2000} fill="url(#dotgrid)" />
 
           {/* Corridor backgrounds (behind rooms) */}
           {corridors.map((corridor, i) => (
@@ -538,21 +549,21 @@ export default function InteractiveMap() {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-6 justify-center text-sm text-gray-400">
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-red-500" />
-          <span>Exit Point</span>
+      <div className="flex items-center gap-6 justify-center text-xs text-gray-500">
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-red-600" />
+          <span>Exit</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 rounded-full bg-green-500" />
-          <span>Entry Point</span>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-green-600" />
+          <span>Entry</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-0.5 bg-blue-500" />
-          <span>Mapped Path</span>
+        <div className="flex items-center gap-1.5">
+          <div className="w-5 h-0.5 bg-red-600" />
+          <span>Path</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-0.5 border-t-2 border-dashed border-gray-500" />
+        <div className="flex items-center gap-1.5">
+          <div className="w-5 h-0.5 border-t border-dashed border-gray-500" />
           <span>Unmapped</span>
         </div>
       </div>
