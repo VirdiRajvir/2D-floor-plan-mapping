@@ -2,10 +2,10 @@
   "id": "a6d066c9-af01-408d-98fd-732ee19e10e3",
   "name": "e",
   "createdAt": "2026-03-03T01:06:27.345Z",
-  "updatedAt": "2026-03-03T01:06:29.380Z",
+  "updatedAt": "2026-03-03T02:19:04.764Z",
   "masterMap": {
     "id": "ab49a0ff-71b5-44c9-a1c6-ae7e89f17109",
-    "imageUrl": "blob:http://localhost:3000/8d16cfea-fcdc-4f40-8174-98a09a9f1207",
+    "imageUrl": "/uploads/1772503519111-EXISTING-FIRST-FLOOR-PRES-scaled-e1635965923983.jpg",
     "width": 170,
     "height": 296,
     "pins": [
@@ -50,7 +50,7 @@
           "id": "c6a18135-d7a5-4b75-90ca-2f049da34bcf",
           "floorNumber": 1,
           "label": "Ground Floor",
-          "imageUrl": "blob:http://localhost:3000/195cdbd0-b362-479e-8053-6304d333422a",
+          "imageUrl": "/uploads/1772503519099-1-bedroom-house-plan.jpg",
           "width": 800,
           "height": 600,
           "walkabilityConfig": {
@@ -17261,7 +17261,7 @@
           "id": "d0053d53-d30b-44a9-81e4-002db33033a5",
           "floorNumber": 1,
           "label": "Ground Floor",
-          "imageUrl": "blob:http://localhost:3000/dec21971-7377-4f5e-bd8a-2addbf48c942",
+          "imageUrl": "/uploads/1772503519118-floorplan.png",
           "width": 2732,
           "height": 1908,
           "walkabilityConfig": {
@@ -17286,7 +17286,7 @@
           "id": "302a956b-63fa-4707-a43c-9adc2fcec93c",
           "floorNumber": 1,
           "label": "Ground Floor",
-          "imageUrl": "blob:http://localhost:3000/41f14c24-6f6b-4179-ab52-cf678f806e8d",
+          "imageUrl": "/uploads/1772503519164-IMG_8075.JPG",
           "width": 4032,
           "height": 3024,
           "walkabilityConfig": {

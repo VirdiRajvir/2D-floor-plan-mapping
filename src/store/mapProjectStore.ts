@@ -6,7 +6,7 @@
 
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { computeUniversalPath } from '@/lib/universalPathfinder';
+import { computeUniversalPath, MASTER_MAP_ID } from '@/lib/universalPathfinder';
 import type {
   MapProject,
   SubMap,
@@ -144,7 +144,19 @@ export const useMapProjectStore = create<MapProjectState>((set, get) => ({
   zoomTargetPin: null,
 
   // ─── Project ───────────────────────────────────────────────
-  setProject: (project) => set({ project }),
+  setProject: (project) => set({
+    project,
+    viewLevel: 'master',
+    activeSubMapId: null,
+    activeFloorId: null,
+    masterZoom: 1,
+    masterOffset: { x: 0, y: 0 },
+    subMapZoom: 1,
+    subMapOffset: { x: 0, y: 0 },
+    isZoomingIn: false,
+    isZoomingOut: false,
+    zoomTargetPin: null,
+  }),
 
   updateProject: (updates) => set((state) => ({
     project: state.project ? { ...state.project, ...updates, updatedAt: new Date().toISOString() } : null,
@@ -408,11 +420,12 @@ export const useMapProjectStore = create<MapProjectState>((set, get) => ({
   startPlacingRescuer: () => set({ rescuePlacingFor: 'rescuer' }),
   startPlacingRescuee: () => set({ rescuePlacingFor: 'rescuee' }),
 
-  placeRescueMarker: (subMapId, floorId, x, y) => set((state) => {
+  placeRescueMarker: (subMapId, floorId, x, y) => {
+    const state = get();
     const target = state.rescuePlacingFor;
-    if (!target) return {};
+    if (!target) return;
     const marker = { subMapId, floorId, x, y };
-    return {
+    set({
       rescue: {
         ...state.rescue,
         [target]: marker,
@@ -421,8 +434,24 @@ export const useMapProjectStore = create<MapProjectState>((set, get) => ({
         id: target === 'rescuee' ? uuidv4() : state.rescue.id,
       },
       rescuePlacingFor: target === 'rescuer' ? 'rescuee' : null,
-    };
-  }),
+    });
+
+    // After placing a marker in a sub-map, zoom back to master
+    // so the user can pick the next building (or see the route overview)
+    if (subMapId !== MASTER_MAP_ID) {
+      setTimeout(() => {
+        if (get().viewLevel === 'submap') {
+          get().triggerZoomOut();
+        }
+      }, 600);
+    }
+
+    // Auto-recalculate if both markers are now set
+    const updated = get();
+    if (updated.rescue.rescuer && updated.rescue.rescuee && updated.project) {
+      get().recalculateRescuePath();
+    }
+  },
 
   setRescuePath: (segments) => set((state) => {
     const total = segments.reduce((s, seg) => s + seg.distance, 0);

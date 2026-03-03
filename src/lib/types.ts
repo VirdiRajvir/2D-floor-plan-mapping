@@ -270,6 +270,10 @@ export interface MasterMap {
   width: number;
   height: number;
   pins: MapPin[];
+  /** Pre-computed walkability grid for A* pathfinding on the master map */
+  walkabilityGrid?: SerializedWalkabilityGrid;
+  /** Manually drawn blocked zones (red zones) on the master map */
+  permanentBlockedZones?: { id: string; x: number; y: number; w: number; h: number }[];
 }
 
 /** Top-level map project */

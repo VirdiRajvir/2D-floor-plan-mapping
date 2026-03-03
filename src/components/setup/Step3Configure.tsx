@@ -39,6 +39,11 @@ type AnnotationSet = {
   exitPoints: { x: number; y: number }[];
 };
 
+export interface MasterMapConfig {
+  walkabilityConfig: WalkabilityConfig;
+  walkabilityGrid?: SerializedWalkabilityGrid;
+}
+
 interface Props {
   images: UploadedImage[];
   pinnedImages: PinnedImage[];

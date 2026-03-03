@@ -24,11 +24,11 @@ interface PinnedImage {
 
 interface Props {
   images: UploadedImage[];
-  onComplete: (masterId: string, pins: PinnedImage[]) => void;
+  onComplete: (masterId: string, pins: PinnedImage[], redZones: { id: string; x: number; y: number; w: number; h: number }[]) => void;
   onBack: () => void;
 }
 
-type Tool = 'pin' | 'footprint' | 'model3d';
+type Tool = 'pin' | 'footprint' | 'model3d' | 'redzone';
 
 export function Step2MasterPin({ images, onComplete, onBack }: Props) {
   const [masterImageId, setMasterImageId] = useState<string | null>(null);
@@ -40,6 +40,9 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
   const [editingPinId, setEditingPinId] = useState<string | null>(null);
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null);
   const [pending3DPos, setPending3DPos] = useState<{ x: number; y: number } | null>(null);
+  const [redZones, setRedZones] = useState<{ id: string; x: number; y: number; w: number; h: number }[]>([]);
+  const [zoneDragStart, setZoneDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [zoneDragCurrent, setZoneDragCurrent] = useState<{ x: number; y: number } | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +60,7 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
 
   const handleCanvasClick = (e: React.MouseEvent) => {
     if (!masterImageId) return;
+    if (tool === 'redzone') return; // handled by mousedown/up
     if (tool === 'model3d') {
       // 3D pin placement: click to place, then show upload popover
       const pos = getRelativeCoords(e);
@@ -87,6 +91,12 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (tool === 'redzone') {
+      const pos = getRelativeCoords(e);
+      setZoneDragStart(pos);
+      setZoneDragCurrent(pos);
+      return;
+    }
     if (tool !== 'footprint' || !selectedForPin) return;
     const pos = getRelativeCoords(e);
     setFootprintStart(pos);
@@ -94,6 +104,11 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (tool === 'redzone' && zoneDragStart) {
+      const pos = getRelativeCoords(e);
+      setZoneDragCurrent(pos);
+      return;
+    }
     if (tool !== 'footprint' || !footprintStart) return;
     const pos = getRelativeCoords(e);
     const x = Math.min(footprintStart.x, pos.x);
@@ -104,6 +119,19 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
+    // Red zone commit
+    if (tool === 'redzone' && zoneDragStart && zoneDragCurrent) {
+      const x = Math.min(zoneDragStart.x, zoneDragCurrent.x);
+      const y = Math.min(zoneDragStart.y, zoneDragCurrent.y);
+      const w = Math.abs(zoneDragCurrent.x - zoneDragStart.x);
+      const h = Math.abs(zoneDragCurrent.y - zoneDragStart.y);
+      if (w > 0.005 && h > 0.005) {
+        setRedZones(prev => [...prev, { id: crypto.randomUUID(), x, y, w, h }]);
+      }
+      setZoneDragStart(null);
+      setZoneDragCurrent(null);
+      return;
+    }
     if (tool !== 'footprint' || !footprintStart || !footprintDraw || !selectedForPin) {
       setFootprintStart(null);
       return;
@@ -222,6 +250,12 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
                 >
                   🧊 3D Model
                 </button>
+                <button
+                  onClick={() => { setTool('redzone'); setSelectedForPin(null); setZoneDragStart(null); setZoneDragCurrent(null); }}
+                  className={`flex-1 py-1.5 text-xs rounded-lg border transition-all ${tool === 'redzone' ? 'border-red-500/60 bg-red-500/15 text-red-300' : 'border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                >
+                  ⛔ Red Zone
+                </button>
               </div>
 
               <div className="space-y-2">
@@ -294,7 +328,9 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-slate-400">
-                  {tool === 'model3d'
+                  {tool === 'redzone'
+                    ? 'Drag to draw blocked zones · Click a zone to remove it'
+                    : tool === 'model3d'
                     ? 'Click on the map to place a 3D model pin'
                     : selectedForPin
                       ? tool === 'pin'
@@ -302,14 +338,16 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
                         : `Drag to draw area for "${images.find(i => i.id === selectedForPin)?.name}"`
                       : 'Select a building to place its pin'}
                 </p>
-                <span className="text-xs text-slate-500">{pins.length} pins placed</span>
+                <span className="text-xs text-slate-500">
+                  {pins.length} pin{pins.length !== 1 ? 's' : ''}{redZones.length > 0 ? ` · ${redZones.length} zone${redZones.length !== 1 ? 's' : ''}` : ''}
+                </span>
               </div>
 
               {/* Interactive map canvas */}
               <div
                 ref={canvasRef}
                 className={`relative rounded-2xl overflow-hidden border border-slate-700 select-none ${
-                  tool === 'model3d' ? 'cursor-crosshair' : selectedForPin ? (tool === 'pin' ? 'cursor-crosshair' : 'cursor-crosshair') : 'cursor-default'
+                  tool === 'redzone' ? 'cursor-crosshair' : tool === 'model3d' ? 'cursor-crosshair' : selectedForPin ? 'cursor-crosshair' : 'cursor-default'
                 }`}
                 style={{ aspectRatio: `${masterImage?.width ?? 16}/${masterImage?.height ?? 9}` }}
                 onClick={handleCanvasClick}
@@ -355,6 +393,42 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
                       top: `${footprintDraw.y * 100}%`,
                       width: `${footprintDraw.w * 100}%`,
                       height: `${footprintDraw.h * 100}%`,
+                    }}
+                  />
+                )}
+
+                {/* Red zones */}
+                {redZones.map(z => (
+                  <div
+                    key={z.id}
+                    className="absolute bg-red-500/25 border border-red-500/70 border-dashed"
+                    style={{
+                      left: `${z.x * 100}%`,
+                      top: `${z.y * 100}%`,
+                      width: `${z.w * 100}%`,
+                      height: `${z.h * 100}%`,
+                      pointerEvents: tool === 'redzone' ? 'auto' : 'none',
+                      cursor: tool === 'redzone' ? 'pointer' : 'default',
+                    }}
+                    onClick={(e) => {
+                      if (tool !== 'redzone') return;
+                      e.stopPropagation();
+                      setRedZones(prev => prev.filter(rz => rz.id !== z.id));
+                    }}
+                  >
+                    <span className="absolute inset-0 flex items-center justify-center text-[10px] text-red-400 pointer-events-none select-none">⛔</span>
+                  </div>
+                ))}
+
+                {/* Live red zone drawing */}
+                {tool === 'redzone' && zoneDragStart && zoneDragCurrent && (
+                  <div
+                    className="absolute border-2 border-dashed border-red-500 bg-red-500/20 pointer-events-none"
+                    style={{
+                      left: `${Math.min(zoneDragStart.x, zoneDragCurrent.x) * 100}%`,
+                      top: `${Math.min(zoneDragStart.y, zoneDragCurrent.y) * 100}%`,
+                      width: `${Math.abs(zoneDragCurrent.x - zoneDragStart.x) * 100}%`,
+                      height: `${Math.abs(zoneDragCurrent.y - zoneDragStart.y) * 100}%`,
                     }}
                   />
                 )}
@@ -426,7 +500,7 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
 
               {/* Tip */}
               <p className="text-xs text-slate-500">
-                💡 "Pin Point" links to a building. "Draw Area" outlines a footprint. "3D Model" places a standalone 3D reconstruction pin.
+                💡 "Pin Point" links to a building. "Draw Area" outlines a footprint. "3D Model" places a 3D pin. "Red Zone" marks non-walkable areas for routing.
               </p>
             </div>
           )}
@@ -442,7 +516,7 @@ export function Step2MasterPin({ images, onComplete, onBack }: Props) {
           Back
         </button>
         <button
-          onClick={() => canContinue && onComplete(masterImageId!, pins)}
+          onClick={() => canContinue && onComplete(masterImageId!, pins, redZones)}
           disabled={!canContinue}
           className={`px-8 py-3 rounded-xl font-semibold transition-all flex items-center gap-2 ${
             canContinue

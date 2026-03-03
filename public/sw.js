@@ -7,7 +7,7 @@
  *  - everything else    → network-first (Next.js pages/assets)
  */
 
-const CACHE_NAME = 'safemap-v1';
+const CACHE_NAME = 'safemap-v2';
 
 // App shell pages to precache on install
 const PRECACHE_URLS = ['/', '/setup', '/navigate'];
@@ -46,9 +46,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          // Cache the fresh response for offline use
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          // Only cache successful responses for offline use
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
           return response;
         })
         .catch(() => caches.match(event.request))
@@ -56,19 +58,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // ── Floor plan images: cache-first ───────────────────────────────────────
+  // ── Floor plan images: cache-first (only for uploads, not /maps/ config data)
   // Large binary assets that essentially never change once uploaded.
-  if (
-    url.pathname.startsWith('/uploads/') ||
-    url.pathname.startsWith('/maps/')
-  ) {
+  if (url.pathname.startsWith('/uploads/')) {
     event.respondWith(
       caches.match(event.request).then((cached) => {
         if (cached) return cached;
         return fetch(event.request).then((response) => {
-          caches.open(CACHE_NAME).then((cache) =>
-            cache.put(event.request, response.clone())
-          );
+          // Only cache successful responses — never cache 404s
+          if (response.ok) {
+            caches.open(CACHE_NAME).then((cache) =>
+              cache.put(event.request, response.clone())
+            );
+          }
           return response;
         });
       })

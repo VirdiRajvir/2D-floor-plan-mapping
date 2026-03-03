@@ -40,6 +40,7 @@ export default function SetupPage() {
   }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [masterRedZones, setMasterRedZones] = useState<{ id: string; x: number; y: number; w: number; h: number }[]>([]);
 
   // Step 0 → 1: upload complete
   const handleUploadComplete = (imgs: UploadedImage[]) => {
@@ -50,10 +51,12 @@ export default function SetupPage() {
   // Step 1 → 2: master + pins defined
   const handleMasterPinComplete = (
     masterId: string,
-    pins: typeof pinnedImages
+    pins: typeof pinnedImages,
+    redZones: { id: string; x: number; y: number; w: number; h: number }[],
   ) => {
     setMasterImageId(masterId);
     setPinnedImages(pins);
+    setMasterRedZones(redZones);
     setCurrentStep(2);
   };
 
@@ -68,7 +71,7 @@ export default function SetupPage() {
       doorMarkers?: { id: string; x: number; y: number }[];
       entryPoints?: { x: number; y: number }[];
       exitPoints?: { x: number; y: number }[];
-    }[]
+    }[],
   ) => {
     if (!masterImageId) return;
     setSaving(true);
@@ -153,6 +156,7 @@ export default function SetupPage() {
           width: master.width,
           height: master.height,
           pins: allPins,
+          permanentBlockedZones: masterRedZones.length > 0 ? masterRedZones : undefined,
         },
         subMaps,
       };

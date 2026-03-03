@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
-import { listMapProjects, saveMapProject } from '@/lib/mapStorage';
+import { listMapProjectSummaries, saveMapProject } from '@/lib/mapStorage';
 import type { MapProject } from '@/lib/types';
 
 export async function GET() {
-  const projects = await listMapProjects();
+  const projects = await listMapProjectSummaries();
   return NextResponse.json(projects);
 }
 

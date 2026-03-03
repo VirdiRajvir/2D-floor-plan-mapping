@@ -92,9 +92,11 @@ export function SubMapView({ subMap, floor, on3DPinClick, isSetupMode = false, s
 
     if (!floor.imageUrl) return;
 
+    let cancelled = false;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
+      if (cancelled) return;
       try {
         let grid: ReturnType<typeof processFloorPlanImage>;
 
@@ -132,16 +134,30 @@ export function SubMapView({ subMap, floor, on3DPinClick, isSetupMode = false, s
           grid = { ...grid, grid: data };
         }
 
-        setWalkGrid(grid);
+        if (!cancelled) setWalkGrid(grid);
       } catch (e) {
         console.warn('Walkability grid setup failed:', e);
       }
-      setLoadedImage(img);
-      imgRef.current = img;
-      setImgLoaded(true);
+      if (!cancelled) {
+        setLoadedImage(img);
+        imgRef.current = img;
+        setImgLoaded(true);
+      }
     };
-    img.onerror = () => setImgLoaded(true); // still show image for display
+    img.onerror = () => {
+      if (!cancelled) {
+        console.warn('Floor plan image failed to load:', floor.imageUrl);
+        setImgLoaded(true);
+      }
+    };
     img.src = floor.imageUrl;
+
+    return () => {
+      cancelled = true;
+      img.onload = null;
+      img.onerror = null;
+      img.src = '';
+    };
   }, [floor.imageUrl, floor.walkabilityConfig, floor.walkabilityGrid, floor.outline, floor.permanentBlockedZones, deserializeGrid]);
 
   // Fit to container
@@ -286,10 +302,12 @@ export function SubMapView({ subMap, floor, on3DPinClick, isSetupMode = false, s
   const imgW = iw * subMapZoom;
   const imgH = ih * subMapZoom;
 
-  // Rescue markers on this floor
-  const rescuerOnFloor = rescue.rescuer?.floorId === floor.id ? rescue.rescuer : null;
-  const rescueeOnFloor = rescue.rescuee?.floorId === floor.id ? rescue.rescuee : null;
-  const pathsForFloor = rescue.pathSegments.filter(s => s.floorId === floor.id);
+  // Rescue markers on this floor (must match both subMapId and floorId)
+  const rescuerOnFloor = rescue.rescuer?.subMapId === subMap.id && rescue.rescuer?.floorId === floor.id ? rescue.rescuer : null;
+  const rescueeOnFloor = rescue.rescuee?.subMapId === subMap.id && rescue.rescuee?.floorId === floor.id ? rescue.rescuee : null;
+  // Only render 'walk' segments — 'transition' segments bridge two coordinate systems
+  // (sub-map ↔ master map) so their points are not all in sub-map normalized space.
+  const pathsForFloor = rescue.pathSegments.filter(s => s.subMapId === subMap.id && s.floorId === floor.id && s.type === 'walk');
 
   const cursor = (isRescueMode && rescuePlacingFor) || pinMode || zoneMode || model3dMode
     ? 'cursor-crosshair'

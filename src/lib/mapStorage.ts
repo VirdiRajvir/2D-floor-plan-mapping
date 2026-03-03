@@ -51,6 +51,61 @@ export async function listMapProjects(): Promise<MapProject[]> {
   }
 }
 
+/**
+ * List map projects with metadata only (no heavy subMap data).
+ * Much faster for dashboards — avoids parsing/transferring walkability grids.
+ */
+export async function listMapProjectSummaries(): Promise<MapProject[]> {
+  const fs = require('fs/promises') as typeof import('fs/promises');
+  const path = require('path') as typeof import('path');
+  const dir = getMapsDir();
+
+  try {
+    await ensureMapsDir();
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const projects: MapProject[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const configPath = path.join(dir, entry.name, 'config.json');
+      try {
+        const raw = await fs.readFile(configPath, 'utf-8');
+        const project = JSON.parse(raw) as MapProject;
+        // Strip heavy data — dashboards only need IDs, names, pin counts
+        const light: MapProject = {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+          thumbnail: project.thumbnail,
+          masterMap: {
+            ...project.masterMap,
+            // Keep imageUrl for the thumbnail but strip nothing else
+          },
+          subMaps: project.subMaps.map(sm => ({
+            ...sm,
+            floors: sm.floors.map(f => ({
+              ...f,
+              walkabilityGrid: undefined, // strip heavy grid data
+              outline: undefined,         // strip heavy outline data
+            })),
+          })),
+        };
+        projects.push(light);
+      } catch {
+        // Skip malformed entries
+      }
+    }
+
+    return projects.sort((a, b) =>
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  } catch {
+    return [];
+  }
+}
+
 export async function loadMapProject(id: string): Promise<MapProject | null> {
   const fs = require('fs/promises') as typeof import('fs/promises');
   const path = require('path') as typeof import('path');

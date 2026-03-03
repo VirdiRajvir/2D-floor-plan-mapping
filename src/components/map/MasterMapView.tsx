@@ -4,6 +4,8 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import type { MapProject, MapPin, Model3DAsset } from '@/lib/types';
 import { useMapProjectStore } from '@/store/mapProjectStore';
 import { MapPins } from './MapPins';
+import { PathLayer } from './PathLayer';
+import { MASTER_MAP_ID } from '@/lib/universalPathfinder';
 
 interface Props {
   project: MapProject;
@@ -23,6 +25,8 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
     isRescueMode, rescuePlacingFor,
     placeRescueMarker,
     rescue,
+    updateMasterMap,
+    persistProject,
   } = useMapProjectStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -30,6 +34,13 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [imgLoaded, setImgLoaded] = useState(false);
   const [hoveredPin, setHoveredPin] = useState<string | null>(null);
+
+  // Red zone drawing state
+  const [zoneMode, setZoneMode] = useState(false);
+  const [zoneDragStart, setZoneDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [zoneDragCurrent, setZoneDragCurrent] = useState<{ x: number; y: number } | null>(null);
+
+  const { recalculateRescuePath } = useMapProjectStore();
 
   // Fit image to container on load
   const fitToContainer = useCallback(() => {
@@ -62,6 +73,12 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
   }, [handleWheel]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Zone drawing mode — capture start position
+    if (zoneMode) {
+      const pos = canvasToNormalized(e.clientX, e.clientY);
+      if (pos) { setZoneDragStart(pos); setZoneDragCurrent(pos); }
+      return;
+    }
     if (isRescueMode && rescuePlacingFor) return;
     if (e.target instanceof SVGElement || (e.target as HTMLElement).closest('[data-pin]')) return;
     setIsDragging(true);
@@ -69,6 +86,12 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    // Zone draw preview
+    if (zoneMode && zoneDragStart) {
+      const pos = canvasToNormalized(e.clientX, e.clientY);
+      if (pos) setZoneDragCurrent(pos);
+      return;
+    }
     if (!isDragging) return;
     setMasterOffset({
       x: e.clientX - dragStart.x,
@@ -76,7 +99,26 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
     });
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => {
+    // Commit zone if drawn with meaningful area
+    if (zoneMode && zoneDragStart && zoneDragCurrent) {
+      const x = Math.min(zoneDragStart.x, zoneDragCurrent.x);
+      const y = Math.min(zoneDragStart.y, zoneDragCurrent.y);
+      const w = Math.abs(zoneDragCurrent.x - zoneDragStart.x);
+      const h = Math.abs(zoneDragCurrent.y - zoneDragStart.y);
+      if (w > 0.005 && h > 0.005) {
+        const newZone = { id: crypto.randomUUID(), x, y, w, h };
+        const zones = [...(masterMap.permanentBlockedZones ?? []), newZone];
+        updateMasterMap({ permanentBlockedZones: zones });
+        persistProject();
+        recalculateRescuePath();
+      }
+      setZoneDragStart(null);
+      setZoneDragCurrent(null);
+      return;
+    }
+    setIsDragging(false);
+  };
 
   const handlePinClick = useCallback((pin: MapPin) => {
     // 3D pin — open the 3D viewer instead of zooming into sub-map
@@ -84,6 +126,7 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
       on3DPinClick(pin.model3D);
       return;
     }
+    // Navigate into the sub-map (rescue mode too — user picks a precise point inside)
     triggerZoomIn(pin);
   }, [triggerZoomIn, on3DPinClick]);
 
@@ -101,36 +144,12 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
     return { x: relX, y: relY };
   }, [masterMap.width, masterMap.height, masterZoom, masterOffset]);
 
-  // Find closest building pin to a normalized position
-  const findNearestPin = useCallback((pos: { x: number; y: number }): MapPin | null => {
-    let closest: MapPin | null = null;
-    let minDist = Infinity;
-    for (const pin of masterMap.pins) {
-      if (!pin.subMapId) continue; // skip 3D-only pins
-      const d = Math.hypot(pin.x - pos.x, pin.y - pos.y);
-      if (d < minDist) { minDist = d; closest = pin; }
-    }
-    return closest;
-  }, [masterMap.pins]);
-
-  const handleMapClick = useCallback((e: React.MouseEvent) => {
-    if (!isRescueMode || !rescuePlacingFor) return;
-    // Don't handle if click was on a pin
-    if ((e.target as HTMLElement).closest('[data-pin]') || e.target instanceof SVGElement) return;
-    const pos = canvasToNormalized(e.clientX, e.clientY);
-    if (!pos) return;
-
-    // Find the nearest building pin and use its ground floor
-    const nearestPin = findNearestPin(pos);
-    if (!nearestPin) return;
-    const subMap = project.subMaps.find(s => s.id === nearestPin.subMapId);
-    if (!subMap || subMap.floors.length === 0) return;
-    const groundFloor = subMap.floors[0];
-
-    // Map the master-map coordinates to be relative within the building (use pin center as reference)
-    // For simplicity, place the marker at the center of the building's ground floor entry
-    placeRescueMarker(subMap.id, groundFloor.id, 0.5, 0.5);
-  }, [isRescueMode, rescuePlacingFor, canvasToNormalized, findNearestPin, project.subMaps, placeRescueMarker]);
+  // In rescue mode, markers are placed inside rooms (click a building pin to enter).
+  // No direct placement on the master map.
+  const handleMapClick = useCallback((_e: React.MouseEvent) => {
+    if (zoneMode) return; // zone drawing uses mousedown/up events
+    // no-op — rescue placement happens inside sub-maps
+  }, [zoneMode]);
 
   if (!masterMap.imageUrl) {
     return (
@@ -150,17 +169,27 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
   const imgH = (masterMap.height || 600) * masterZoom;
 
   // Determine cursor
-  const cursorClass = (isRescueMode && rescuePlacingFor)
+  const cursorClass = zoneMode
+    ? 'cursor-crosshair'
+    : (isRescueMode && rescuePlacingFor)
     ? 'cursor-crosshair'
     : isDragging ? 'cursor-grabbing' : 'cursor-grab';
 
-  // Rescue markers that can be shown on master map (find pin position for each)
-  const rescuerPin = rescue.rescuer ? masterMap.pins.find(p =>
-    p.subMapId === rescue.rescuer!.subMapId
+  // Rescue markers — show at actual click position for master-map markers,
+  // or at building pin position for sub-map markers
+  const rescuerPos = rescue.rescuer ? (
+    rescue.rescuer.subMapId === MASTER_MAP_ID
+      ? { x: rescue.rescuer.x, y: rescue.rescuer.y }
+      : (() => { const p = masterMap.pins.find(pin => pin.subMapId === rescue.rescuer!.subMapId); return p ? { x: p.x, y: p.y } : null; })()
   ) : null;
-  const rescueePin = rescue.rescuee ? masterMap.pins.find(p =>
-    p.subMapId === rescue.rescuee!.subMapId
+  const rescueePos = rescue.rescuee ? (
+    rescue.rescuee.subMapId === MASTER_MAP_ID
+      ? { x: rescue.rescuee.x, y: rescue.rescuee.y }
+      : (() => { const p = masterMap.pins.find(pin => pin.subMapId === rescue.rescuee!.subMapId); return p ? { x: p.x, y: p.y } : null; })()
   ) : null;
+
+  // Path segments that belong on the master map
+  const masterPathSegments = rescue.pathSegments.filter(s => s.subMapId === MASTER_MAP_ID);
 
   return (
     <div
@@ -199,6 +228,7 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
           className="w-full h-full object-fill rounded-lg shadow-2xl shadow-black/50"
           draggable={false}
           onLoad={() => setImgLoaded(true)}
+          onError={() => setImgLoaded(true)}
           style={{ display: imgLoaded ? 'block' : 'none' }}
         />
         {!imgLoaded && (
@@ -241,20 +271,31 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
               project={project}
             />
 
-            {/* Rescue markers shown at building pin locations */}
-            {rescuerPin && (
+            {/* Path segments on master map */}
+            {masterPathSegments.map((seg, idx) => seg.points.length > 1 && (
+              <PathLayer
+                key={`master-path-${idx}`}
+                points={seg.points}
+                imageWidth={masterMap.width || 800}
+                imageHeight={masterMap.height || 600}
+                type={seg.type}
+              />
+            ))}
+
+            {/* Rescue markers */}
+            {rescuerPos && (
               <MasterRescueMarker
-                x={rescuerPin.x * (masterMap.width || 800)}
-                y={rescuerPin.y * (masterMap.height || 600)}
+                x={rescuerPos.x * (masterMap.width || 800)}
+                y={rescuerPos.y * (masterMap.height || 600)}
                 color="#f59e0b"
                 icon="🔥"
                 label="Rescuer"
               />
             )}
-            {rescueePin && (
+            {rescueePos && (
               <MasterRescueMarker
-                x={rescueePin.x * (masterMap.width || 800)}
-                y={rescueePin.y * (masterMap.height || 600)}
+                x={rescueePos.x * (masterMap.width || 800)}
+                y={rescueePos.y * (masterMap.height || 600)}
                 color="#ef4444"
                 icon="🆘"
                 label="Rescuee"
@@ -262,10 +303,76 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
             )}
           </svg>
         )}
+
+        {/* Permanent red zones SVG */}
+        {(masterMap.permanentBlockedZones?.length ?? 0) > 0 && imgLoaded && (
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            viewBox={`0 0 ${masterMap.width || 800} ${masterMap.height || 600}`}
+            preserveAspectRatio="none"
+          >
+            {(masterMap.permanentBlockedZones ?? []).map(z => {
+              const mw = masterMap.width || 800;
+              const mh = masterMap.height || 600;
+              return (
+                <g key={z.id}>
+                  <rect
+                    x={z.x * mw} y={z.y * mh}
+                    width={z.w * mw} height={z.h * mh}
+                    fill="rgba(239,68,68,0.25)"
+                    stroke="rgba(239,68,68,0.7)"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 2"
+                    style={{ pointerEvents: zoneMode ? 'auto' : 'none', cursor: zoneMode ? 'pointer' : 'default' }}
+                    onClick={(e) => {
+                      if (!zoneMode) return;
+                      e.stopPropagation();
+                      const zones = (masterMap.permanentBlockedZones ?? []).filter(pz => pz.id !== z.id);
+                      updateMasterMap({ permanentBlockedZones: zones });
+                      persistProject();
+                      recalculateRescuePath();
+                    }}
+                  />
+                  <text
+                    x={(z.x + z.w / 2) * mw}
+                    y={(z.y + z.h / 2) * mh}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={10}
+                    fill="rgba(239,68,68,0.8)"
+                    style={{ userSelect: 'none', pointerEvents: 'none' }}
+                  >⛔</text>
+                </g>
+              );
+            })}
+          </svg>
+        )}
+
+        {/* Live zone draw preview */}
+        {zoneMode && zoneDragStart && zoneDragCurrent && (
+          <div
+            className="absolute pointer-events-none border-2 border-dashed border-red-500 bg-red-500/20"
+            style={{
+              left: `${Math.min(zoneDragStart.x, zoneDragCurrent.x) * 100}%`,
+              top: `${Math.min(zoneDragStart.y, zoneDragCurrent.y) * 100}%`,
+              width: `${Math.abs(zoneDragCurrent.x - zoneDragStart.x) * 100}%`,
+              height: `${Math.abs(zoneDragCurrent.y - zoneDragStart.y) * 100}%`,
+            }}
+          />
+        )}
       </div>
 
+      {/* Zone mode hint */}
+      {zoneMode && (
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10">
+          <div className="px-4 py-2 rounded-xl text-sm font-medium border backdrop-blur-sm bg-red-600/20 border-red-600/40 text-red-300">
+            ⛔ Drag to draw a blocked zone · Click zone to remove
+          </div>
+        </div>
+      )}
+
       {/* Rescue placement hint on master map */}
-      {isRescueMode && rescuePlacingFor && (
+      {isRescueMode && rescuePlacingFor && !zoneMode && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none z-10">
           <div className={`px-4 py-2 rounded-xl text-sm font-medium border backdrop-blur-sm ${
             rescuePlacingFor === 'rescuer'
@@ -273,11 +380,38 @@ export function MasterMapView({ project, on3DPinClick }: Props) {
               : 'bg-red-500/20 border-red-500/40 text-red-300'
           }`}>
             {rescuePlacingFor === 'rescuer'
-              ? '🔥 Click near a building to place Rescuer'
-              : '🆘 Click near a building to place Rescuee'}
+              ? '🔥 Click a building to enter and place Rescuer'
+              : '🆘 Click a building to enter and place Rescuee'}
           </div>
         </div>
       )}
+
+      {/* Red Zone controls — bottom left */}
+      <div className="absolute bottom-4 left-4 flex items-center gap-2 z-10">
+        <button
+          onClick={() => { setZoneMode(p => !p); setZoneDragStart(null); setZoneDragCurrent(null); }}
+          className={`px-3 py-1.5 text-xs rounded-lg border backdrop-blur-sm transition-all flex items-center gap-1.5 ${
+            zoneMode
+              ? 'bg-red-600/20 border-red-600/40 text-red-300'
+              : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-red-300 hover:border-red-600/30'
+          }`}
+        >
+          ⛔ Red Zone
+        </button>
+        {(masterMap.permanentBlockedZones?.length ?? 0) > 0 && (
+          <button
+            onClick={() => { updateMasterMap({ permanentBlockedZones: [] }); persistProject(); recalculateRescuePath(); }}
+            className="px-3 py-1.5 text-xs bg-slate-800/90 hover:bg-slate-700 text-slate-400 border border-slate-700 rounded-lg backdrop-blur-sm transition-all"
+          >
+            Clear All
+          </button>
+        )}
+        {(masterMap.permanentBlockedZones?.length ?? 0) > 0 && (
+          <span className="text-[10px] text-slate-500">
+            {masterMap.permanentBlockedZones!.length} zone{masterMap.permanentBlockedZones!.length !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
 
       {/* Zoom controls */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-1.5">

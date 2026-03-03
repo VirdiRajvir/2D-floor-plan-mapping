@@ -1,0 +1,187 @@
+{
+  "id": "96cefe05-9327-4707-a280-4b8ac0d13f73",
+  "name": "poewr",
+  "createdAt": "2026-03-03T03:27:31.805Z",
+  "updatedAt": "2026-03-03T03:27:32.504Z",
+  "masterMap": {
+    "id": "4dcaa8b5-0885-4e1f-be75-7ce9535ad942",
+    "imageUrl": "/uploads/1772508408586-images.jpg",
+    "width": 170,
+    "height": 296,
+    "pins": [
+      {
+        "id": "e9e91792-8e6b-42e9-8311-04c5a223c9a6",
+        "label": "1-bedroom-house-plan",
+        "x": 0.1846539106756461,
+        "y": 0.44325290437890974,
+        "subMapId": "601f0c98-e11d-4ca1-8a7f-87e2fc85d540",
+        "icon": "default"
+      },
+      {
+        "id": "f43b5352-ad3c-48bd-98f1-7a677d1d84c8",
+        "label": "EXISTING-FIRST-FLOOR-PRES-scaled-e1635965923983",
+        "x": 0.14575381099414067,
+        "y": 0.5460232350312779,
+        "subMapId": "589505e7-c785-4a35-b2ce-35dcbfc39474",
+        "icon": "default"
+      },
+      {
+        "id": "c34a6e80-2394-42af-8fbd-d5d930ba8b9e",
+        "label": "floorplan",
+        "x": 0.8475116092484987,
+        "y": 0.26541554959785524,
+        "subMapId": "6c39132b-8cc9-4e64-a1a7-4b312656bf32",
+        "icon": "default"
+      },
+      {
+        "id": "fe513750-e4c3-4335-b8b8-e0ea024f4f83",
+        "label": "IMG_8075",
+        "x": 0.7899394617198706,
+        "y": 0.42001787310098304,
+        "subMapId": "be78825d-7163-40a6-a650-6676c5d42829",
+        "icon": "default"
+      },
+      {
+        "id": "a385837c-098c-4c99-9ca7-245ac42c59ad",
+        "label": "sample-floorplan",
+        "x": 0.7790474338090492,
+        "y": 0.7596067917783735,
+        "subMapId": "65ad5a0a-6b31-4cb5-81eb-521c8af0e0b8",
+        "footprint": {
+          "x": 0.691911210522477,
+          "y": 0.7068811438784629,
+          "width": 0.17427244657314434,
+          "height": 0.10545129579982127
+        },
+        "icon": "default"
+      }
+    ]
+  },
+  "subMaps": [
+    {
+      "id": "601f0c98-e11d-4ca1-8a7f-87e2fc85d540",
+      "name": "1-bedroom-house-plan",
+      "floors": [
+        {
+          "id": "47f453c6-c395-4e6f-91b6-e0004be69bb6",
+          "floorNumber": 1,
+          "label": "Ground Floor",
+          "imageUrl": "/uploads/1772508407901-1-bedroom-house-plan.jpg",
+          "width": 800,
+          "height": 600,
+          "walkabilityConfig": {
+            "threshold": 128,
+            "dilation": 2,
+            "resolution": 150
+          },
+          "rooms": [],
+          "doors": [],
+          "stairConnections": [],
+          "entryPoints": [],
+          "exitPoints": []
+        }
+      ],
+      "activeFloorId": "47f453c6-c395-4e6f-91b6-e0004be69bb6"
+    },
+    {
+      "id": "589505e7-c785-4a35-b2ce-35dcbfc39474",
+      "name": "EXISTING-FIRST-FLOOR-PRES-scaled-e1635965923983",
+      "floors": [
+        {
+          "id": "de46ab63-5d65-462f-96c7-fa88dd1c43f4",
+          "floorNumber": 1,
+          "label": "Ground Floor",
+          "imageUrl": "/uploads/1772508408455-EXISTING-FIRST-FLOOR-PRES-scaled-e1635965923983.jpg",
+          "width": 1920,
+          "height": 1941,
+          "walkabilityConfig": {
+            "threshold": 128,
+            "dilation": 2,
+            "resolution": 150
+          },
+          "rooms": [],
+          "doors": [],
+          "stairConnections": [],
+          "entryPoints": [],
+          "exitPoints": []
+        }
+      ],
+      "activeFloorId": "de46ab63-5d65-462f-96c7-fa88dd1c43f4"
+    },
+    {
+      "id": "6c39132b-8cc9-4e64-a1a7-4b312656bf32",
+      "name": "floorplan",
+      "floors": [
+        {
+          "id": "5f66c698-6695-4baf-bb05-0013b3ec2f93",
+          "floorNumber": 1,
+          "label": "Ground Floor",
+          "imageUrl": "/uploads/1772508408525-floorplan.png",
+          "width": 2732,
+          "height": 1908,
+          "walkabilityConfig": {
+            "threshold": 128,
+            "dilation": 2,
+            "resolution": 150
+          },
+          "rooms": [],
+          "doors": [],
+          "stairConnections": [],
+          "entryPoints": [],
+          "exitPoints": []
+        }
+      ],
+      "activeFloorId": "5f66c698-6695-4baf-bb05-0013b3ec2f93"
+    },
+    {
+      "id": "be78825d-7163-40a6-a650-6676c5d42829",
+      "name": "IMG_8075",
+      "floors": [
+        {
+          "id": "3bb5d6bd-4c31-4c64-93fc-75a2581ecf2d",
+          "floorNumber": 1,
+          "label": "Ground Floor",
+          "imageUrl": "/uploads/1772508408718-IMG_8075.JPG",
+          "width": 4032,
+          "height": 3024,
+          "walkabilityConfig": {
+            "threshold": 128,
+            "dilation": 2,
+            "resolution": 150
+          },
+          "rooms": [],
+          "doors": [],
+          "stairConnections": [],
+          "entryPoints": [],
+          "exitPoints": []
+        }
+      ],
+      "activeFloorId": "3bb5d6bd-4c31-4c64-93fc-75a2581ecf2d"
+    },
+    {
+      "id": "65ad5a0a-6b31-4cb5-81eb-521c8af0e0b8",
+      "name": "sample-floorplan",
+      "floors": [
+        {
+          "id": "b3159022-9b1d-4ce4-87f5-84ff9bab8b64",
+          "floorNumber": 1,
+          "label": "Ground Floor",
+          "imageUrl": "/uploads/1772508409761-sample-floorplan.png",
+          "width": 623,
+          "height": 431,
+          "walkabilityConfig": {
+            "threshold": 128,
+            "dilation": 2,
+            "resolution": 150
+          },
+          "rooms": [],
+          "doors": [],
+          "stairConnections": [],
+          "entryPoints": [],
+          "exitPoints": []
+        }
+      ],
+      "activeFloorId": "b3159022-9b1d-4ce4-87f5-84ff9bab8b64"
+    }
+  ]
+}

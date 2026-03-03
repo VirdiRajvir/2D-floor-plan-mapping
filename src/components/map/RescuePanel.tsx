@@ -2,6 +2,7 @@
 
 import { useMapProjectStore } from '@/store/mapProjectStore';
 import { TrackingSimulator } from './TrackingSimulator';
+import { MASTER_MAP_ID } from '@/lib/universalPathfinder';
 
 interface RescuePanelProps {
   /** Callback to report the simulated firefighter position on the map */
@@ -18,8 +19,13 @@ export function RescuePanel({ onSimPositionUpdate }: RescuePanelProps) {
     startPlacingRescuer,
     startPlacingRescuee,
     clearRescue,
+    viewLevel,
     activeSubMapId,
     activeFloorId,
+    navigateToSubMap,
+    navigateToMaster,
+    triggerZoomIn,
+    triggerZoomOut,
   } = useMapProjectStore();
 
   const { rescuer, rescuee, pathSegments, totalDistance, estimatedMinutes } = rescue;
@@ -36,6 +42,49 @@ export function RescuePanel({ onSimPositionUpdate }: RescuePanelProps) {
   const primaryWalkSeg = pathSegments.find(
     s => s.type === 'walk' && s.subMapId === rescuer?.subMapId && s.floorId === rescuer?.floorId
   );
+
+  /** Get a display name for a marker location */
+  const markerLocationName = (marker: { subMapId: string; floorId: string } | null): string => {
+    if (!marker) return 'Not placed';
+    if (marker.subMapId === MASTER_MAP_ID) return 'Master Map';
+    return project?.subMaps.find(s => s.id === marker.subMapId)?.name ?? 'Building';
+  };
+
+  /** Navigate to the view containing a specific path segment */
+  const navigateToSegment = (seg: typeof pathSegments[0]) => {
+    if (seg.subMapId === MASTER_MAP_ID) {
+      if (viewLevel === 'submap') {
+        triggerZoomOut();
+      }
+      // Already on master — no-op
+    } else {
+      if (viewLevel === 'master' && project) {
+        // Use zoom animation to enter the room from master map
+        const pin = project.masterMap.pins.find(p => p.subMapId === seg.subMapId);
+        if (pin) {
+          triggerZoomIn(pin);
+          // After animation lands, switch to the correct floor if needed
+          if (seg.floorId) {
+            setTimeout(() => {
+              const st = useMapProjectStore.getState();
+              if (st.activeFloorId !== seg.floorId) {
+                useMapProjectStore.getState().setActiveFloor(seg.floorId);
+              }
+            }, 800);
+          }
+          return;
+        }
+      }
+      // Already in a sub-map — direct navigation
+      navigateToSubMap(seg.subMapId, seg.floorId);
+    }
+  };
+
+  /** Is the current view showing a specific segment's location? */
+  const isViewingSegment = (seg: typeof pathSegments[0]): boolean => {
+    if (seg.subMapId === MASTER_MAP_ID) return viewLevel === 'master';
+    return viewLevel === 'submap' && activeSubMapId === seg.subMapId && activeFloorId === seg.floorId;
+  };
 
   return (
     <div className="h-full bg-[#0f1320]/95 border-l border-slate-800 backdrop-blur-sm flex flex-col overflow-hidden">
@@ -54,9 +103,24 @@ export function RescuePanel({ onSimPositionUpdate }: RescuePanelProps) {
           </button>
         </div>
         <p className="text-xs text-slate-500 mt-1">
-          {activeSubMap?.name} {activeFloor && activeSubMap && activeSubMap.floors.length > 1 ? `— ${activeFloor.label}` : ''}
+          {viewLevel === 'master' ? 'Campus Overview' : activeSubMap?.name} {activeFloor && activeSubMap && activeSubMap.floors.length > 1 ? `— ${activeFloor.label}` : ''}
         </p>
       </div>
+
+      {/* Quick navigation: back to overview when inside a room */}
+      {viewLevel === 'submap' && hasPath && (
+        <div className="flex-shrink-0 px-4 py-2 border-b border-slate-800">
+          <button
+            onClick={() => triggerZoomOut()}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/25 transition-colors text-xs font-medium"
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+            </svg>
+            Back to Overview
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
@@ -77,7 +141,7 @@ export function RescuePanel({ onSimPositionUpdate }: RescuePanelProps) {
               <p className="text-xs font-semibold">Rescuer (Firefighter)</p>
               {rescuer ? (
                 <p className="text-[10px] text-amber-400">
-                  {project?.subMaps.find(s => s.id === rescuer.subMapId)?.name ?? 'Building'} — ({(rescuer.x * 100).toFixed(0)}%, {(rescuer.y * 100).toFixed(0)}%)
+                  {markerLocationName(rescuer)} — ({(rescuer.x * 100).toFixed(0)}%, {(rescuer.y * 100).toFixed(0)}%)
                 </p>
               ) : (
                 <p className="text-[10px] text-slate-500">
@@ -105,7 +169,7 @@ export function RescuePanel({ onSimPositionUpdate }: RescuePanelProps) {
               <p className="text-xs font-semibold">Rescuee (Person Trapped)</p>
               {rescuee ? (
                 <p className="text-[10px] text-red-400">
-                  {project?.subMaps.find(s => s.id === rescuee.subMapId)?.name ?? 'Building'} — ({(rescuee.x * 100).toFixed(0)}%, {(rescuee.y * 100).toFixed(0)}%)
+                  {markerLocationName(rescuee)} — ({(rescuee.x * 100).toFixed(0)}%, {(rescuee.y * 100).toFixed(0)}%)
                 </p>
               ) : (
                 <p className="text-[10px] text-slate-500">
@@ -169,14 +233,14 @@ export function RescuePanel({ onSimPositionUpdate }: RescuePanelProps) {
                   <div className="flex items-center gap-1 bg-amber-500/15 border border-amber-500/30 rounded-lg px-2 py-1">
                     <span>🔥</span>
                     <span className="text-amber-300 font-medium">
-                      {project?.subMaps.find(s => s.id === rescuer.subMapId)?.name ?? 'Building'}
+                      {markerLocationName(rescuer)}
                     </span>
                   </div>
                   <span className="text-slate-500">→</span>
                   <div className="flex items-center gap-1 bg-red-500/15 border border-red-500/30 rounded-lg px-2 py-1">
                     <span>🆘</span>
                     <span className="text-red-300 font-medium">
-                      {project?.subMaps.find(s => s.id === rescuee.subMapId)?.name ?? 'Building'}
+                      {markerLocationName(rescuee)}
                     </span>
                   </div>
                 </div>
@@ -185,45 +249,51 @@ export function RescuePanel({ onSimPositionUpdate }: RescuePanelProps) {
 
             <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Route Steps</h3>
             {pathSegments.map((seg, idx) => {
-              const segBuilding = project?.subMaps.find(s => s.id === seg.subMapId);
+              const isMaster = seg.subMapId === MASTER_MAP_ID;
+              const segBuilding = isMaster ? null : project?.subMaps.find(s => s.id === seg.subMapId);
+              const segName = isMaster ? 'Master Map' : (segBuilding?.name ?? 'Building');
+
               if (seg.type === 'stairs') {
                 const fromFloor = segBuilding?.floors.find(f => f.id === seg.floorId);
                 return (
-                  <div key={idx} className="flex items-center gap-2 py-2 px-3 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                  <button key={idx} onClick={() => navigateToSegment(seg)} className={`w-full flex items-center gap-2 py-2 px-3 rounded-lg border transition-colors text-left ${isViewingSegment(seg) ? 'bg-violet-500/25 border-violet-400/50 ring-1 ring-violet-400/30' : 'bg-violet-500/10 border-violet-500/20 hover:bg-violet-500/20'}`}>
                     <span className="text-base">🪜</span>
                     <div>
                       <p className="text-xs text-violet-300 font-medium">Take stairs</p>
                       <p className="text-[10px] text-violet-400/60">
-                        {segBuilding?.name ?? 'Building'} — {fromFloor?.label ?? 'Floor'} → Next floor
+                        {segName} — {fromFloor?.label ?? 'Floor'} → Next floor
                       </p>
                     </div>
-                  </div>
+                  </button>
                 );
               }
               if (seg.type === 'transition') {
-                const fromBldg = project?.subMaps.find(s => s.id === seg.subMapId)?.name ?? 'Building';
-                // Try to find the next walk segment's building
+                const fromBldg = isMaster ? 'Master Map' : (project?.subMaps.find(s => s.id === seg.subMapId)?.name ?? 'Building');
                 const nextWalk = pathSegments.slice(idx + 1).find(ns => ns.type === 'walk');
-                const toBldg = nextWalk ? (project?.subMaps.find(s => s.id === nextWalk.subMapId)?.name ?? 'Building') : 'next building';
+                const nextIsMaster = nextWalk?.subMapId === MASTER_MAP_ID;
+                const toBldg = nextWalk
+                  ? (nextIsMaster ? 'Master Map' : (project?.subMaps.find(s => s.id === nextWalk.subMapId)?.name ?? 'Building'))
+                  : 'next building';
                 return (
-                  <div key={idx} className="flex items-center gap-2 py-2 px-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                  <button key={idx} onClick={() => navigateToSegment(seg)} className={`w-full flex items-center gap-2 py-2 px-3 rounded-lg border transition-colors text-left ${isViewingSegment(seg) ? 'bg-cyan-500/25 border-cyan-400/50 ring-1 ring-cyan-400/30' : 'bg-cyan-500/10 border-cyan-500/20 hover:bg-cyan-500/20'}`}>
                     <span className="text-base">🏃</span>
                     <div>
-                      <p className="text-xs text-cyan-300 font-medium">Cross-building transition</p>
+                      <p className="text-xs text-cyan-300 font-medium">{isMaster ? 'Cross outdoor area' : 'Exit building'}</p>
                       <p className="text-[10px] text-cyan-400/60">
-                        Exit <strong>{fromBldg}</strong> → Enter <strong>{toBldg}</strong>
+                        <strong>{fromBldg}</strong> → <strong>{toBldg}</strong>
                       </p>
                     </div>
-                  </div>
+                  </button>
                 );
               }
-              // Walk segment
+              // Walk segment (on master map or sub-map)
               const segFloor = segBuilding?.floors.find(f => f.id === seg.floorId);
               const segDirs = generateDirections(seg.points);
               return (
-                <div key={idx} className="space-y-1">
-                  <p className="text-[10px] text-slate-500 font-medium">
-                    {segBuilding?.name ?? 'Building'} — {segFloor?.label ?? 'Floor'}
+                <button key={idx} onClick={() => navigateToSegment(seg)} className={`w-full space-y-1 text-left rounded-lg p-1 transition-colors ${isViewingSegment(seg) ? 'bg-slate-700/50 ring-1 ring-indigo-400/30' : 'hover:bg-slate-800/40'}`}>
+                  <p className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                    {isMaster ? '🗺️ Master Map — Outdoor' : `🏢 ${segName} — ${segFloor?.label ?? 'Floor'}`}
+                    <span className="text-[9px] text-slate-600 ml-auto">click to view</span>
                   </p>
                   {segDirs.map((dir, i) => (
                     <div key={i} className="flex items-center gap-2 py-1 border-b border-slate-800/60">
@@ -235,7 +305,7 @@ export function RescuePanel({ onSimPositionUpdate }: RescuePanelProps) {
                       )}
                     </div>
                   ))}
-                </div>
+                </button>
               );
             })}
           </div>

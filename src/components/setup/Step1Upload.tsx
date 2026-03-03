@@ -42,7 +42,8 @@ export function Step1Upload({ projectName, onProjectNameChange, onComplete }: Pr
 
       const res = await fetch('/api/upload', { method: 'POST', body: formData });
       if (!res.ok) throw new Error('Upload failed');
-      const uploaded = await res.json() as { name: string; path: string; size: number }[];
+      const data = await res.json();
+      const uploaded = (data.files ?? data) as { name: string; path: string; size: number }[];
 
       // Get image dimensions
       const newImages: UploadedImage[] = await Promise.all(

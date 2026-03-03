@@ -39,10 +39,34 @@ export function HierarchicalMapCanvas({ project, on3DPinClick, isSetupMode, simP
   const [zoomStyle, setZoomStyle] = useState<React.CSSProperties>({});
   const [transitioning, setTransitioning] = useState(false);
   const [showSubMap, setShowSubMap] = useState(false);
+  const transitionTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Clear any pending transition timers
+  const clearTransitionTimers = useCallback(() => {
+    transitionTimers.current.forEach(clearTimeout);
+    transitionTimers.current = [];
+  }, []);
+
+  // Reset local view state when the project changes (prevents stale showSubMap)
+  useEffect(() => {
+    setShowSubMap(false);
+    setTransitioning(false);
+    setZoomStyle({});
+    clearTransitionTimers();
+  }, [project, clearTransitionTimers]);
 
   // Zoom-in animation: master → sub
   useEffect(() => {
     if (!isZoomingIn || !zoomTargetPin || !wrapperRef.current) return;
+
+    // Guard: don't zoom into a pin with empty subMapId (3D-only pins)
+    if (!zoomTargetPin.subMapId) {
+      clearZoomAnimation();
+      return;
+    }
+
+    // Cancel any in-flight transition first
+    clearTransitionTimers();
 
     const wrapper = wrapperRef.current;
     const rect = wrapper.getBoundingClientRect();
@@ -91,13 +115,18 @@ export function HierarchicalMapCanvas({ project, on3DPinClick, isSetupMode, simP
       clearZoomAnimation();
     }, 750);
 
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [isZoomingIn, zoomTargetPin, navigateToSubMap, clearZoomAnimation]);
+    transitionTimers.current = [t1, t2, t3];
+    // No cleanup return — timers must run to completion even if isZoomingIn
+    // changes mid-animation (navigateToMaster sets it to false in parallel).
+    // New animations cancel old timers via clearTransitionTimers() at the top.
+  }, [isZoomingIn, zoomTargetPin, navigateToSubMap, clearZoomAnimation, clearTransitionTimers]);
 
   // Zoom-out animation: sub → master
   useEffect(() => {
     if (!isZoomingOut) return;
 
+    // Cancel any in-flight transition first
+    clearTransitionTimers();
     setTransitioning(true);
 
     // Phase 1: shrink + fade out
@@ -131,8 +160,20 @@ export function HierarchicalMapCanvas({ project, on3DPinClick, isSetupMode, simP
       clearZoomAnimation();
     }, 640);
 
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [isZoomingOut, navigateToMaster, clearZoomAnimation]);
+    transitionTimers.current = [t1, t2, t3];
+    // No cleanup return — same reasoning as zoom-in above.
+  }, [isZoomingOut, navigateToMaster, clearZoomAnimation, clearTransitionTimers]);
+
+  // Cleanup all pending timers on unmount only
+  useEffect(() => () => clearTransitionTimers(), [clearTransitionTimers]);
+
+  // When navigating to master outside of an animation (e.g. RescuePanel click),
+  // sync the local showSubMap state so MasterMapView renders correctly
+  useEffect(() => {
+    if (viewLevel === 'master' && !transitioning) {
+      setShowSubMap(false);
+    }
+  }, [viewLevel, transitioning]);
 
   const activeSubMap = getActiveSubMap();
   const activeFloor = getActiveFloor();

@@ -32,23 +32,32 @@ export default function MapViewerPage() {
   useEffect(() => {
     if (!params.id) return;
 
+    const abortController = new AbortController();
+
     async function loadProject() {
       try {
-        const res = await fetch(`/api/maps/${params.id}`);
+        const res = await fetch(`/api/maps/${params.id}`, { signal: abortController.signal });
+        if (abortController.signal.aborted) return;
         if (!res.ok) {
           setError('Map project not found.');
           return;
         }
         const data = await res.json() as MapProject;
+        if (abortController.signal.aborted) return;
         setProject(data);
-      } catch {
+      } catch (err) {
+        if (abortController.signal.aborted) return;
         setError('Failed to load map project.');
       } finally {
-        setLoading(false);
+        if (!abortController.signal.aborted) {
+          setLoading(false);
+        }
       }
     }
 
     loadProject();
+
+    return () => abortController.abort();
   }, [params.id, setProject]);
 
   const activeSubMap = project?.subMaps.find(s => s.id === activeSubMapId);

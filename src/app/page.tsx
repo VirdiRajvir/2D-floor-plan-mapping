@@ -11,11 +11,19 @@ export default function LandingPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/maps')
+    const abortController = new AbortController();
+    fetch('/api/maps', { signal: abortController.signal })
       .then(r => r.ok ? r.json() : [])
-      .then((data: MapProject[]) => setProjects(data))
-      .catch(() => setProjects([]))
-      .finally(() => setLoading(false));
+      .then((data: MapProject[]) => {
+        if (!abortController.signal.aborted) setProjects(data);
+      })
+      .catch(() => {
+        if (!abortController.signal.aborted) setProjects([]);
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) setLoading(false);
+      });
+    return () => abortController.abort();
   }, []);
 
   const deleteProject = async (id: string, e: React.MouseEvent) => {
