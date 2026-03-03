@@ -1,8 +1,20 @@
 @import "tailwindcss";
 
 :root {
-  --background: #030712;
-  --foreground: #ededed;
+  --background: #0a0d14;
+  --foreground: #f1f5f9;
+
+  /* SafeMap design tokens */
+  --bg-base: #0a0d14;
+  --bg-surface: #131929;
+  --bg-elevated: #1a2235;
+  --accent-primary: #f59e0b;    /* amber — rescuer/action */
+  --accent-rescue: #ef4444;     /* red — emergency/rescuee */
+  --accent-path: #06b6d4;       /* cyan — navigation path */
+  --accent-safe: #22c55e;       /* green — walkable/safe */
+  --accent-pin: #818cf8;        /* indigo — map pins */
+  --text-primary: #f1f5f9;
+  --text-muted: #64748b;
 }
 
 @theme inline {
@@ -51,4 +63,47 @@ body {
 
 .marker-pulse {
   animation: pulse-marker 2s ease-in-out infinite;
+}
+
+/* Rescue pulse animation */
+@keyframes rescue-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+}
+
+.rescue-pulse {
+  animation: rescue-pulse 1.5s ease-in-out infinite;
+}
+
+/* Marching ants for paths */
+@keyframes march {
+  to { stroke-dashoffset: -20; }
+}
+
+.path-march {
+  animation: march 0.5s linear infinite;
+}
+
+/* Zoom transition */
+.zoom-transition {
+  transition: transform 350ms cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 250ms ease;
+}
+
+/* Pin entrance animation */
+@keyframes pin-drop {
+  0% { transform: translateY(-20px) scale(0.8); opacity: 0; }
+  60% { transform: translateY(4px) scale(1.05); }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.pin-drop {
+  animation: pin-drop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Gradient border for active elements */
+.gradient-border {
+  border: 1px solid transparent;
+  background: linear-gradient(#131929, #131929) padding-box,
+              linear-gradient(135deg, #f59e0b, #06b6d4) border-box;
 }

@@ -9,12 +9,17 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@mkkellogg/gaussian-splats-3d": "^0.4.7",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@types/three": "^0.183.1",
     "next": "16.1.6",
     "openai": "^6.25.0",
     "papaparse": "^5.5.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "sharp": "^0.34.5",
+    "three": "^0.183.2",
     "uuid": "^13.0.0",
     "zustand": "^5.0.11"
   },
